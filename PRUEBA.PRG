@@ -1,0 +1,21 @@
+FUNCTION PB()
+
+ local l
+
+ IF ABRIR('MXENCFAC',MXENCFAC,'S',MXENFAX1)
+    SETCOLOR(C_BOX2)
+    CLS
+    l:=1
+    DO WHILE !EOF()
+       @ l,10 say numfac
+       l++
+       DBSKIP()
+    ENDDO
+    CERRAR('MXENCFAC')
+ ENDIF
+
+ PARE('PROCEDIMIENTO CULMINO CON EXITO')
+
+RETURN NIL
+
+

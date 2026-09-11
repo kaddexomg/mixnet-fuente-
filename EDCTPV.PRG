@@ -1,0 +1,2989 @@
+#INCLUDE "MIXCAB.CH"
+* EDICION DE FACTURAS PUNTO DE VENTAS
+FUNCTION VEN0311
+   Local l:=4,c:=2
+   Local nOpc,aOpcPv:={'Facturar por P.V.     ',;
+                       'Caja de P.V.          ',;
+                       'Generar Caja de P.V.  '}
+   nOpc:=la_opcion(aOpcPv,l,c,3,1,[ PUNTO DE VENTA ])
+   DO CASE
+      CASE nOpc=1
+         FACTPV()
+      CASE nOpc=2
+         EDIT_VENTANA('CAJA')
+      CASE nOpc=3
+         GENCAJAPV()
+   ENDCASE
+RETURN NIL
+
+FUNCTION FACTPV()
+* PUNTO DE VENTA
+PRIVATE xpor_iva:=0,xcuantos:='',xcodcon,xcoddpto,xabono_apa,GetRengAct:=.f.
+PRIVATE LISTAAPA
+PRIVATE XNUMFAC,XNUMCPV,XEMISION,xcliente,XCODVEN,XCOMISION,XALMACEN:=P_ALMACEN:='  ', XRECIBE:=0, XTOT_IVA:=0
+PRIVATE LEMISION, XDEVFAC,  XMFP, XABONO, XVENCE, xcondpag
+PRIVATE XNOMVEN,XTOT_FAC,XTOT_NET,XHORA
+PRIVATE XDCTO, XCOBRADA, XTARIFA:='A    ', XCAJA:=IF(ESTACION='Z','00',ESTACION)
+PRIVATE XDESCUENTO,XCARGO,XFP
+PRIVATE XDIREC1,XDIREC2,XDIREC3,XDIREC4,XTLF1,XTLF2,XFAX,XEMAIL
+PRIVATE LNUMFAC,BUFFER
+PRIVATE XITEM,XUNIDAD,XBULTO,XCANTIDAD,XPRECIO,XDESC,XTOT_REN,XDESCRIP, XIVA:=''
+PRIVATE BITEM,BDESCRIP,BNUMFAC,YFACTOR
+PRIVATE NO_CONFOR,  PROXNUM, MMENUSCR, DOC_ORIGEN, TIP_ORIGEN, LTIP_ORIGEN,UNIREF
+PRIVATE ENTRO
+PRIVATE XIMP_EFE,XIMP_BAN,XIMP_TAR, XNUMBAN, XNOMBAN, XCODTAR, XNUMTAR, XMONEDA, XIMP_EXT,XIMP_CTK, XRECARGO:='N'
+STORE 0 TO XBASE_A
+PRIVATE LCANTIDAD:=0, G_REDONDO:=0, OPALERT:={'OK'}
+PRIVATE  LPRECIO:=0
+PRIVATE entroxmod:=.f.
+PRIVATE MXTRAINV:=cf('mxtrainv.dbf')
+PRIVATE MXTRINX1:=cf('mxtrinx1.ntx')
+PRIVATE cvar:='X'
+PRIVATE cCedRif:=Space(12)
+
+PRIVATE XTPCORR:='PVE'
+
+PRIVATE CFILNUM:=MXNUMRAP
+PRIVATE CFCONPV:=MXNUMCPV
+
+PRIVATE XSERIE:=''
+PRIVATE XPERGIRO:=30
+PRIVATE XNUMGIRO:=1
+PRIVATE XPORINT:=0
+PRIVATE XINTERES:=0
+
+PRIVATE SERIAL_OLISTA:={}
+PRIVATE SERIAL_ORP:={||mxserinv->s_origen:='',mxserinv->s_numero:=''}
+PRIVATE SERIAL_LISTA:={}
+PRIVATE SERIAL_RPL:={||mxserinv->s_origen:='PVE',mxserinv->s_numero:=mxencrap->numfac}
+PRIVATE SERIAL_FOR:={||(s_numero==XNUMFAC.and.s_origen=='PVE').or.empty(s_numero)}
+
+PRIVATE OPCH:=6
+
+* PARA SER USADO POR PAGREN ********************
+PRIVATE R_LEN:=0,R_CRD:='',R_TIT
+PRIVATE R_EDC:=LOAD_REN('RENFAC')
+************************************************
+PRIVATE AFP:={},pafp:={}, act:={}
+
+PRIVATE PV_PROG := SPACE(8)
+PRIVATE PV_iMP  := 'S'
+PRIVATE PV_inc  := 'N'
+PRIVATE PV_PVP  := 'N'
+PRIVATE PV_DCTO := 0.00
+PRIVATE PV_cargo:= 0.00
+PRIVATE PV_REDON:= 'N'
+PRIVATE PV_PAUSA:= 'N'
+PRIVATE PV_REP  :=SPACE(8)
+
+PRIVATE PV_EDF  :='N'
+PRIVATE PV_EDV  :='S'
+PRIVATE PV_EDCLI:='S'
+PRIVATE PV_DC   :='N'
+PRIVATE PV_EDCTO:='N'
+PRIVATE PV_EDalm:='N'
+PRIVATE PV_credi:='N'
+PRIVATE PV_EDcan:='S'
+PRIVATE PV_EDctb:='N'
+PRIVATE PV_EDimp:='N'
+private pv_alm:='N'
+PRIVATE PV_F8:='N'
+PRIVATE PV_CALT:='S'
+PRIVATE PV_CALM:=SPACE(2)
+PRIVATE PV_RDTP:='S'
+Private pv_clavdesc:=Space(5)
+Private pv_abrdes:='S'
+Private pv_mfac:='S'
+Private pv_mcla:=space(5)
+Private pv_rengpag := 0
+Private pv_breng   := 'N'
+
+PRIVATE PVFILE:=CE('MXTPV.MTD')
+IF FILE(PVFILE)
+ RESTORE FROM (PVFILE) ADDITIVE
+ENDIF
+
+PRIVATE ES_TPV:='1'
+
+IF PV_REDON='N'
+ G_REDONDO:=2
+ENDIF
+
+PRIVATE  D_REFRES:=BLK('RF2PV()')
+
+PRIVATE BUFECT:=G_CAMINO+[BUFECT]+estacion+[.DBF]
+
+XDCTO=0
+cambio_dia=0.00
+XMONEDA='US$'
+UNIDAD=[]
+XCODVEN    = SPACE(  5)
+XALMACEN   = IF(!EMPTY(PV_CALM),PV_CALM,SPACE(2))
+ENTRO:=.F.
+DOC_ORIGEN=[PVE]
+STORE [FC] TO TIP_ORIGEN, LTIP_ORIGEN
+PRIVATE BUFGIR:=[BUFGIR]+estacion+[.DBF]
+BUFFER=[BUFRAP]+ESTACION+[.DBF]
+MENSAJ(MEN3)
+SET KEY  -19 TO ABRCAJ
+IF ABRIR([MXENCRAP],cf('MXENCRAP'),'S',cf('MXENRAX1'),cf('MXENRAX2'))
+  /*
+  if UPPER(fieldname(40))<>'IMPRESA'
+   ALERT('ATENCION!!! ATENCION!!! ; SE DEBEN COPIAR LAS ESTRUCTURAS MIXTPV\TPV\MX???RAP.INI; AL DIRECTORIO MIX5, LUEGO REPROCESAR MIX T.P.V.',OPALERT)
+   RETURN
+  ENDIF
+  */
+ CARGACORR(XTPCORR,1)  // NUEVA FUNCION PARA LA CARGA DE LOS CORRELATIVOS DEL DOC.. 20.7.2005
+
+ IF ABRIR([MXRENRAP],MXRENRAP,[S],MXRERAX1,MXRERAX2)
+  COPY STRUCTURE TO (BUFFER)
+  IF ABRIR([MXCTAINV],MXCTAINV,[S],MXCTINX1,MXCTINX5,MXCTINX2)
+   IF ABRIR([MXCTAVDD],MXCTAVDD,[S],MXCTVDX1)
+    IF ABRIR([MXCTASER],MXCTASER,[S],MXCTSEX1)
+     IF ABRIR([MXCTATAR],MXCTATAR,[S],MXCTTAX1)
+      IF ABRIR([MXCTACLI],MXCTACLI,[S],MXCTCLX1,MXCTCLX2)
+       IF ABRIR([MXCAJTPV],cE('MXCAJTPV'),[S],CE('MXCATPX1'),CE('MXCATPX2'))
+        IF ABRIR([MXEXTINV],MXEXTINV,[S],MXEXINX1)
+        IF ABRIR([MXCTAALM],MXCTAALM,[S],MXCTALX1)
+         IF ABRIR([BUFFER],BUFFER,[E])
+         AFP()
+         SELECT MXENCRAP
+         GO BOTTOM
+         APL:='ENC'
+         SET KEY 281 TO ApaFac()
+         edit_ventana('ENCFAC')
+         SET KEY 281 TO
+         CERRAR("BUFFER")
+         DELETE FILE (BUFFER)
+        ENDIF
+      ELSE
+       ALERT('ATENCION!!! ATENCION!!! ; SE DEBEN COPIAR LAS ESTRUCTURAS MIXTPV\TPV\MX???RAP.INI; AL DIRECTORIO MIX5, LUEGO REPROCESAR MIX T.P.V.',OPALERT)
+      ENDIF
+     ENDIF
+    ENDIF
+   ENDIF
+   ENDIF
+  ENDIF
+ ENDIF
+ENDIF
+ENDIF
+ENDIF
+INIT_IO()
+set key -19 TO
+*DELEBUFF()
+RETURN
+
+STATIC function abrcaj
+ parameter a1,b1,c1
+  opencaja()
+return
+
+STATIC function opencaja
+ IF !EMPTY(PV_PROG)
+   BEGIN SEQUENCE
+    RUN (TRIM(PV_PROG))
+   END
+ ENDIF
+return 0
+
+function SERVICIO
+ parameter a1,b1,c1
+ EDIT_VENTANA('CTASER')
+return
+
+function DEFENC
+ * VALORES POR DEFECTO
+ ENTRO=.F.
+ entroxmod:=.f.
+ XCOMISION  = 0
+ XPOR_IVA:=0
+ xcodcon :=Space(20)
+ xcoddpto:=Space(10)
+ xabono_apa:=0
+ listaapa:=''
+ XHORA := STRTRAN(TIME(),':')
+ * FORMA DE PAGO
+ STORE 0 TO  XIMP_EFE,XIMP_BAN,XIMP_TAR, XIMP_EXT, XIMP_CTK, XRECIBE, XTOT_IVA
+
+ STORE SPACE(16) TO  XNOMBAN
+ STORE SPACE(10) TO  XNUMBAN
+
+ STORE SPACE(16) TO  XNUMTAR
+ STORE SPACE(3)  TO  XCODTAR
+ STORE SPACE(8)  TO  XCLIENTE
+
+ STORE SPACE(25) TO XDIREC1,XDIREC2,XDIREC3,XDIREC4
+ STORE SPACE(15) TO XTLF1,XTLF2,XFAX
+ STORE SPACE(50) TO XEMAIL
+
+ XFP=1
+ XMFP:=1
+
+ STORE 0 TO XTOT_FAC,XTOT_NET,XDESCUENTO,XCARGO, XABONO
+ xcondpag:=0
+ XCOBRADA:=.F.
+ XVENCE=CTOD(G_FECHA)
+
+ XDEVFAC:=SPACE(8)
+
+ SELECT BUFFER
+ DELETE ALL
+ PACK
+ ZAP
+
+ SELECT MXENCRAP
+* PANRAP()
+ RETURN
+
+*
+ function ASGENC(ZERO)
+ * ASIGNACION DE REGISTRO A MEMORIA
+ entroxmod:=.t.
+ xcodcon :=Space(20)
+ xcoddpto:=Space(10)
+ xabono_apa:=abono_apa
+ listaapa:=''
+ STORE NUMFAC TO XNUMFAC,LNUMFAC
+ XNUMCPV := NCONTROL
+
+*STORE EMISION TO XEMISION,LEMISION
+ XCLIENTE:=PAD(NOMBRE,8)
+ XRECIBE:=0
+
+  XDESCUENTO=DESCUENTO
+  XCARGO=CARGO
+
+ IF EMPTY(ZERO)
+  XTOT_IVA:=0
+*  XDESCUENTO=0
+*  XCARGO=0
+ ELSE
+  XTOT_IVA:=IMP_IVA
+  XDESCUENTO=DESCUENTO
+  XCARGO=CARGO
+ ENDIF
+
+ XCOMISION  = COMISION
+ XRECARGO   = RECARGO
+
+ XIMP_EFE = IMP_EFE
+ XIMP_BAN = IMP_BAN
+ XIMP_TAR = IMP_TAR
+ XIMP_EXT = IMP_EXT
+ XIMP_CTK = IMP_CTK
+ XNOMBAN  = NOMBAN
+ XNUMBAN  = NUMBAN
+ XNUMTAR  = NUMTAR
+ XCODTAR  = CODTAR
+ XMONEDA  = MONEDA
+ CAMBIO_DIA=CAMBIOMON
+ XHORA:=HORA
+ XFP=FP
+ XMFP=MFP
+ xcondpag:=condpag
+ XABONO:=ABONO
+ XVENCE:=VENCE
+ XSERIE:=SERIE
+ XCOBRADA:=COBRADA
+ XDEVFAC:=DEVFAC
+ XALMACEN   = ALMACEN
+
+ XTOT_FAC   = TOT_FAC
+ XTOT_NET   = TOT_NET
+
+ XDIREC1 := DIREC1
+ XDIREC2 := DIREC2
+ XDIREC3 := DIREC3
+ XDIREC4 := DIREC4
+ XTLF1   := TLF1
+ XTLF2   := TLF2
+ XFAX    := FAX
+ XEMAIL  := EMAIL
+
+ SELECT BUFFER
+ ZAP
+ COMMIT
+ CERRAR('BUFFER')
+
+ SELECT MXRENRAP
+ SEEK(XNUMFAC)
+ COPY TO (BUFFER) WHILE NUMFAC = XNUMFAC
+ ABRIR([BUFFER],BUFFER,[E])
+ recarap()
+ SELECT MXENCRAP
+ RETURN
+*
+
+FUNCTION RPLENC()
+* REEMPLAZO EN EL REGISTRO
+IF MODIFICA
+ IF PV_ALM$'ST'
+  RE_GENPV(LNUMFAC)
+  RPL_LISTA(SERIAL_OLISTA,SERIAL_ORP)
+ ENDIF
+ ReversaCtk(LNUMFAC+'PVE',1)
+ENDIF
+SELECT MXENCRAP
+ IF !MODIFICA
+  IF XCOBRADA
+   IF XTOT_FAC>=0
+    XNUMFAC:=NEW_NUM(PROXINUM(CFILNUM))
+   ELSE
+    XNUMFAC:=NEW_NUM(PROXINUM(CF('MXNUMCRE')))
+   ENDIF
+   //XNUMCPV:=NEW_NUM(PROXINUM(CF('MXNUMCPV')))
+   XNUMCPV:=NEW_NUM(PROXINUM(CFCONPV))
+  ELSE
+   XREG:=LASTREC()
+   XNUMFAC:="PC"+STRZERO(XREG,6)
+   XNUMCPV:=space(8)
+  ENDIF
+ENDIF
+ SELECT MXENCRAP
+ REVCXCPV()
+ IF MODIFICA
+  DELCAJ(MXENCRAP->NUMFAC)
+ ENDIF
+ SELECT MXENCRAP
+ AUDITORIA([Acceso a mantenimiento de Punto de Venta],xnumfac,numfac,IF(MODIFICA,[MOD],[INC]))
+ MENSAJ([Grabando factura ...])
+ w_rplreg()
+ REPLACE NUMFAC    WITH XNUMFAC
+ REPLACE NCONTROL  WITH XNUMCPV
+ REPLACE COMISION  WITH mxctavdd->comision
+ REPLACE TOT_NET   WITH XTOT_NET
+ REPLACE TOT_FAC   WITH XTOT_FAC
+ REPLACE DESCUENTO WITH XDESCUENTO
+ REPLACE CARGO     WITH XCARGO
+ REPLACE NUM_CAJA  WITH XCAJA
+ REPLACE HORA      WITH XHORA
+ REPLACE EN_ALM    WITH PV_ALM$'ST'
+ REPLACE DIREC1    WITH XDIREC1
+ REPLACE DIREC2    WITH XDIREC2
+ REPLACE DIREC3    WITH XDIREC3
+ REPLACE DIREC4    WITH XDIREC4
+ REPLACE TLF1      WITH XTLF1
+ REPLACE TLF2      WITH XTLF2
+ REPLACE FAX       WITH XFAX
+ REPLACE EMAIL     WITH XEMAIL
+ rpl_pag()
+ rpl_iva()
+ RPL_LISTA(SERIAL_LISTA,SERIAL_RPL)
+
+ SELECT BUFFER
+ REPLACE ALL  NUMFAC WITH XNUMFAC , EMISION WITH MXENCRAP->EMISION
+ CERRAR('BUFFER')
+
+ SELECT MXRENRAP
+ DO WHILE !FLOCK()
+ ENDDO
+
+ IF MODIFICA
+  SEEK(LNUMFAC)
+  DELETE WHILE NUMFAC = LNUMFAC
+ ENDIF
+ APPEND FROM (BUFFER)
+ UNLOCK
+ IF PV_CREDI='N'
+ ** GRABA EN CLIENTES ESPORADICOS
+ IF ABRIR('CLIESPOR',ce('MXCLIESP.DBF'),'S',ce('MXCLESX1.NTX'))
+    IF !dbseek(cCedRif)
+       dbappend()
+    ELSE
+       rlock()
+    ENDIF
+    REPLACE CEDRIF WITH CCEDRIF
+    REPLACE NIT    WITH W_MEM[8,1]
+    REPLACE NOMCLI WITH W_MEM[6,1]
+    REPLACE DIREC1 WITH XDIREC1
+    REPLACE DIREC2 WITH XDIREC2
+    REPLACE DIREC3 WITH XDIREC3
+    REPLACE DIREC4 WITH XDIREC4
+    REPLACE TLF1   WITH XTLF1
+    REPLACE TLF2   WITH XTLF2
+    REPLACE EMAIL  WITH XEMAIL
+    DBUNLOCK()
+    CERRAR('CLIESPOR')
+    CCEDRIF:=SPACE(12)
+ ENDIF
+ ENDIF
+ IF PV_ALM$'ST'
+  GEN_INVPV()
+ ENDIF
+
+ ActApa()
+
+ if pv_abrdes='S'
+    IF XCOBRADA
+       OPENCAJA()
+    ENDIF
+ endif
+
+ IF XCOBRADA .AND. xCondPag=0
+  DEPCAJAPV()
+ ENDIF
+
+ INTERCXCPV()
+
+ ABRIR([BUFFER],BUFFER,[E])
+
+ LIMPIA()
+ SELECT MXENCRAP
+ //IF !EMPTY(PV_REP).AND.XCOBRADA.and.!mxencrap->impresa
+ IF XCOBRADA.and.!mxencrap->impresa
+  IF PV_PAUSA='N'
+   KEYBOARD SALIDA
+  ENDIF
+  IF EMPTY(PV_REP)
+     DOC_EMI(' F.T.P.V. ',G_LIBRAP,'MXENCTPV',XNUMFAC)
+  ELSE
+     PRE_EMI(TRIM(PV_REP)+'.INF',' FACTURA ','MXENCRAP',XNUMFAC)
+  ENDIF
+
+  SELECT MXENCRAP
+  rec_lock(0)
+  mxencrap->impresa:=.t.
+  unlock
+
+  SELECT MXRENRAP
+  SET RELA TO
+  SELECT MXENCRAP
+  SET RELA TO
+ ENDIF
+
+ SELECT MXENCRAP
+
+ DBUNLOCKALL()
+
+ RETURN
+
+
+STATIC function RPL_IVA
+
+REPLACE RECARGO WITH XRECARGO,;
+        BASE_A  WITH XBASE_A ,;
+        POR_IVA with XPOR_IVA ,;
+        IMP_IVA with XTOT_IVA
+RETURN
+
+STATIC FUNCTION MONTO_IVA
+RETURN ROUND(BASE_A*(POR_IVA/100)+IF(RECARGO='2',BASE_A*(POR_IVAR/100),0) , G_REDONDO)
+
+static function rpl_pag
+LOCAL XXNUMFAC
+IF xFp=6
+   xmoneda:='Bs. CTK'
+ENDIF
+XXNUMFAC:=NUMFAC
+IF !MODIFICA
+   IF PCOUNT()=1
+      IF XTOT_FAC>=0
+         XNUMFAC:=NEW_NUM(PROXINUM(CFILNUM))
+      ELSE
+         XNUMFAC:=NEW_NUM(PROXINUM(CF('MXNUMCRE')))
+      ENDIF
+      XNUMCPV:=NEW_NUM(PROXINUM(CFCONPV))
+      REPLACE NUMFAC   WITH XNUMFAC
+      REPLACE NCONTROL WITH XNUMCPV
+      SELECT MXRENRAP
+      DO WHILE .T.
+         IF DBSEEK(XXNUMFAC)
+            RLOCK()
+            REPLACE NUMFAC WITH XNUMFAC
+            DBUNLOCK()
+         ELSE
+           EXIT
+         ENDIF
+      ENDDO
+      SELECT MXENCRAP
+   ENDIF
+ENDIF
+REPLACE  FP WITH XFP,;
+         MFP WITH XMFP,;
+         ABONO WITH XABONO,;
+         condpag WITH Xcondpag,;
+         VENCE WITH XVENCE,;
+         SERIE WITH XSERIE,;
+         COBRADA WITH XCOBRADA,;
+         IMP_EFE WITH XIMP_EFE,;
+         IMP_BAN WITH XIMP_BAN,;
+         IMP_TAR WITH XIMP_TAR,;
+         IMP_EXT WITH XIMP_EXT,;
+         IMP_CTK WITH XIMP_CTK,;
+         NOMBAN  WITH XNOMBAN ,;
+         NUMBAN  WITH XNUMBAN ,;
+         NUMTAR  WITH XNUMTAR ,;
+         CODTAR  WITH XCODTAR ,;
+         MONEDA  WITH XMONEDA ,;
+         CAMBIOMON WITH CAMBIO_DIA,;
+         DEVFAC WITH XDEVFAC
+IF xFp=6
+   GrabaCtk(xnumfac)
+ENDIF
+RETURN
+
+FUNCTION MASENC
+* * MASCARA DE LA VENTANA
+INIT_VER()
+SETCOLOR(C_BOX2)
+BOXTIT('FACTURACION CAJA '+XCAJA,2,0,MAXROW()-2,79)
+L78(6)
+L78(MAXROW()-4)
+L78(MAXROW()-6)
+w_masreg()
+SETCOLOR(C_TIT2)
+DEVPOS(7,1)
+DEVOUT(R_TIT)
+SETCOLOR(C_TEX2)
+@ MAXROW()-5,1 SAY [Sub:            D:            C:             I:            Total:]
+RETURN
+
+FUNCTION VINCENC()
+RETURN .T.
+
+function GETENC
+ * CAPTURA REGISTRO
+ LOCAL OK, UKEYF9:=SETKEY(-8), UKEYF8:=SETKEY(-7),nTReg
+
+ SETKEY(-7,NIL)
+ SETKEY(-8,NIL)
+* SETKEY(-8,{|P,L,V|GETPIE(P,L,V)})
+
+IF MODIFICA
+   cCedRif:=MXENCRAP->CIF
+ENDIF
+
+ IF pv_credi='N'
+    ActDatos()
+ ENDIF
+
+ WHILE .T.
+
+  *XDESCUENTO=0
+  *XDCTO=0
+  *xcargo:=0
+  xtot_iva:=0
+
+  CUR_ON()
+  W_GETREG()
+  IF ESCAPAR()
+   IF ENTRO
+    BELL()
+    SALIR:=decis('¨ Cancelar operaci¢n ?')='S'
+   ELSE
+    SALIR:=.T.
+   ENDIF
+   IF SALIR
+      SETKEY(-8,UKEYF9)
+      SETKEY(-7,UKEYF8)
+      RETURN
+   ENDIF
+  ENDIF
+
+  xemision:=w_mem[1,1]
+  xalmacen:=w_mem[2,1]
+  xcodven :=w_mem[3,1]
+  xcliente:=w_mem[4,1]
+
+  DO WHILE .T.
+     SELECT BUFFER
+     GO TOP
+
+     IF CONFORME<>'N'
+        listaserial({||s_origen=='PVE'.and.s_numero==xnumfac})
+     ENDIF
+
+     SETCOLOR(C_TEX2)
+
+     FR_TOTAL()
+     SETCOLOR(C_TIT2)
+
+     Set key 287 to serializa
+     APL:='REN'
+     EDIT_VENTANA('RENFAC')
+     APL:='_W'
+     PACK
+
+     nTReg:=LastRec()
+     IF nTReg>0 .AND. pv_rengpag > 0 .AND. nTReg > pv_rengpag
+        MsgLimReng()
+        LOOP
+     ENDIF
+     EXIT
+  ENDDO
+  SETKEY(-8,NIL)
+  set key 287 to
+
+*  if pv_pvp$[NT] .AND.  !DifCero(xtot_fac)
+*     Pare('No se permite factura en cero, mientras editar precio esta "T ¢ N"')
+*     LOOP
+*  endif
+
+  OK=.F.
+  SELECT BUFFER
+  GO TOP
+  IF LASTREC()<>0 .AND. !EOF()
+   ENTRO=.T.
+   OK:=FUTRAP()
+  ENDIF
+
+  SELECT MXENCRAP
+  IF ok
+   CONFORME=[S]
+   EXIT
+  ENDIF
+ ENDDO
+
+ SETKEY(-8,UKEYF9)
+ SETKEY(-7,UKEYF8)
+
+ SELECT MXENCRAP
+RETURN
+
+******************************************************************
+function DETENC
+ PRIVATE WNUMFAC
+ IF !EOF()
+ * DISPLAY DE TOTALES
+ *@ 3, 40 SAY 'N£mero:' COLOR c_tex2
+ *@ 3, 58 SAY 'Ticker:' COLOR c_tex2
+ *@ 3, 48 SAY numfac COLOR c_tit2
+ *@ 3, 65 SAY numtick COLOR c_tit2
+ SETCOLOR(C_TIT2)
+ IF EMPTY(devfac)
+    if !cobrada
+       @ 2,65 SAY '*POR CONFORMAR*'
+    else
+       @ 2,65 SAY REPL(CHR(196),15) COLOR c_tex2+"*"
+    endif
+ ENDIF
+ @ MAXROW()-5, 5 SAY E_IMPORTE(TOT_NET,EMISION) PICT PIC11
+ @ MAXROW()-5,19 SAY E_IMPORTE(-DESCUENTO,EMISION) PICT PIC11
+ @ MAXROW()-5,34 SAY E_IMPORTE(CARGO,EMISION) PICT PIC11
+ @ MAXROW()-5,48 SAY E_IMPORTE(IMP_IVA,EMISION) PICT PIC11
+ @ MAXROW()-5,66 SAY E_IMPORTE(TOT_FAC,EMISION) PICT PIC12
+ SETCOLOR(C_TEX2)
+ WNUMFAC=NUMFAC
+ SELECT MXRENRAP
+ SEEK(WNUMFAC)
+ PAGREN(BLK('NUMFAC=WNUMFAC'))
+ ENDIF
+ SELECT MXENCRAP
+RETURN
+*
+*
+function ELIRAP
+ * ELIMINACION DE FACTURA
+ local WNUMFAC
+ PRIVATE MODIFICA:=.T.
+ SELECT MXENCRAP
+ xfpago:=FP
+ REVCXCPV()
+ SELECT MXENCRAP
+
+ WNUMFAC=NUMFAC
+ AUDITORIA([Acceso a mantenimiento de Punto de Venta],wnumfac,,[ELI])
+
+ SELECT MXRENRAP
+ if dbSEEK(WNUMFAC)
+    eliSerial('MXRENRAP',{||mxrenrap->numfac==Wnumfac},;
+               {||mxserinv->s_numero==Wnumfac.and.mxserinv->s_origen='PVE'},;
+               {||mxserinv->s_numero:='',mxserinv->s_origen:=''})
+ endif
+ SELECT MXENCRAP
+ IF PV_ALM$'ST'
+  RE_GENPV(WNUMFAC)
+ ENDIF
+ SELECT MXENCRAP
+ DELCAJ(WNUMFAC)
+ SELECT MXENCRAP
+ DELETE
+
+ SELECT MXRENRAP
+ if DbSeek(wnumfac)
+   STORE [] TO listaapa
+   do while !eof() .AND. numfac=wnumfac
+     if !numapa$listaapa .AND. !Empty(numapa)
+       listaapa:=listaapa+numapa+[/]
+     endif
+     DbSkip()
+   enddo
+ endif
+
+ SELECT MXRENRAP
+ if dbSEEK(WNUMFAC)
+  DO WHILE !FLOCK()
+  ENDDO
+  DELETE WHILE NUMFAC = WNUMFAC
+  UNLOCK
+ ENDIF
+ SELECT MXENCRAP
+
+ ActApa(1)
+ IF xfpago=6
+    ReversaCtk(WNUMFAC+'PVE',1)
+ ENDIF
+
+RETURN
+
+******************** RENGLONES DE LA FACTURA *******************************
+FUNCTION CHKRITEM(X)
+LOCAL PRICHAR,DEVO:=.T.,nRecno
+IF LASTKEY()=5
+ RETURN .T.
+ENDIF
+IF x='/' .or. x='\'
+ IF CHK_VEN('MXCTASER','CTASER',SUBSTR(X,2,5))
+   if !modifica .or. (modifica .and. x<>item)
+    W_MEM[2,1] := MXCTASER->IVA
+    W_MEM[3,1] := MXCTASER->NOMSER
+    W_MEM[5,1] := MXCTASER->PRESER
+*   W_MEM[5,1] := E_IMPORTE(IF( PV_PVP='T',0, MXCTASER->PRESER),XEMISION)
+    XPRECIO    := MXCTASER->PRESER
+    LPRECIO    := MXCTASER->PRESER
+   endif
+   DEVO:=.T.
+ ELSE
+    DEVO:=.F.
+ ENDIF
+ELSE
+ IF X='-'
+    DEVO:=.T.
+    RETURN(DEVO)
+ ELSEIF X='*'
+    DEVO:=.T.
+    RETURN(DEVO)
+ ELSE
+    MI_ORDEN:=SELECT()
+    SELECT MXCTAINV
+    SET ORDER TO 1
+    IF !DBSEEK(X) .AND. !EMPTY(X)
+       SET ORDER TO 2
+       IF !DBSEEK(X)
+          SET ORDER TO 1
+       ELSE
+          SET ORDER TO 1
+          W_MEM[1,1]:=CODART
+          DEVO:=.T.
+          IF !(XTARIFA$'A,B,C,D')
+             XTARIFA:='A'
+          ENDIF
+          if !modifica .or. (modifica .and. x<>item)
+           W_MEM[2,1] := MXCTAINV->IVA
+           W_MEM[3,1] := MXCTAINV->NOMART
+           W_MEM[5,1] := IF(PV_PVP='T',0,EVAL(BLK("MXCTAINV->PRECIO_"+XTARIFA)))
+           *W_MEM[5,1] := E_IMPORTE(IF(PV_PVP='T',0,EVAL(BLK("MXCTAINV->PRECIO_"+XTARIFA))),XEMISION)
+           W_MEM[6,1] := EVAL(BLK("MXCTAINV->DES_"+XTARIFA))
+           LPRECIO    := W_MEM[5,1]
+          endif
+          SELECT BUFFER
+          RETURN DEVO
+       ENDIF
+    ENDIF
+    SET ORDER TO 1
+    SELECT(MI_ORDEN)
+    IF CHK_VEN('MXCTAINV',IF(PV_CALT='S','CTAINV','CTAINV1'),X)
+       IF !(XTARIFA$'A,B,C,D')
+          XTARIFA:='A'
+       ENDIF
+       if !modifica .or. (modifica .and. x<>item)
+        W_MEM[2,1] := MXCTAINV->IVA
+        W_MEM[3,1] := MXCTAINV->NOMART
+        W_MEM[5,1] := E_IMPORTE(IF(PV_PVP='T',0,EVAL(BLK("MXCTAINV->PRECIO_"+XTARIFA))),XEMISION)
+        W_MEM[6,1] := EVAL(BLK("MXCTAINV->DES_"+XTARIFA))
+        LPRECIO    := W_MEM[5,1]
+       endif
+    ELSE
+       DEVO:=.F.
+    ENDIF
+ ENDIF
+ENDIF
+SELECT BUFFER
+RETURN DEVO
+
+FUNCTION CHKIVAPV
+PARAMETER PIVA,POS
+IF PIVA$'A,B,C,D  '
+   RETURN .T.
+ELSE
+   RETURN .F.
+endif
+IF PV_EDIMP='S'
+ IF POS=1
+  RETURN .T.
+ ENDIF
+ENDIF
+IF W_MEM[1,1]='-' .OR. W_MEM[1,1]='*'
+   RETURN .T.
+ENDIF
+IF PIVA$'A,B,C,D  '
+ IF XRECARGO$'N2'
+  IF !EMPTY(PIVA)
+   W_MEM[5,1] := LPRECIO + LPRECIO*IVA(PIVA,xemision)/100
+  ELSE
+   W_MEM[5,1] := LPRECIO
+  ENDIF
+ ENDIF
+ELSE
+ RETURN .F.
+ENDIF
+*-
+RETURN pv_edimp='S'
+
+function FR_TOTAL
+* DISPLAY DE TOTALES
+SETCOLOR(C_TIT2)
+@ MAXROW()-5, 5 SAY E_IMPORTE(XTOT_NET,XEMISION) PICT PIC11
+@ MAXROW()-5,19 SAY E_IMPORTE(-XDESCUENTO,XEMISION) PICT PIC11
+@ MAXROW()-5,34 SAY E_IMPORTE(XCARGO,XEMISION) PICT PIC11
+@ MAXROW()-5,48 SAY E_IMPORTE(XTOT_IVA,XEMISION) PICT PIC11
+XTOT_FAC=ROUND(XTOT_NET+XDESCUENTO+XCARGO+XTOT_IVA,G_REDONDO)
+@ MAXROW()-5,66 SAY E_IMPORTE(XTOT_FAC,XEMISION) PICT PIC12
+SETCOLOR(C_TEX2)
+RETURN
+
+STATIC function _PRE_EMI(EL_REPORTE,EL_TIT,LA_ALI,CLA1,CLA2)
+ LOCAL ALI,FREG,ucolor:=SETCOLOR(),LA_SCR
+ PRIVATE ri_desde,ri_hasta,no_loop:=.T.
+ ali:=select(LA_ALI)
+ SELECT (ALI)
+ FREG     := RECNO()
+ RI_DESDE := CLA1
+ RI_HASTA := IF(VALTYPE(CLA2)='U',CLA1,CLA2)
+ LA_SCR   :=SAVESCREEN(0,0,MAXROW(),MAXCOL())
+ REPORTE(EL_REPORTE,EL_TIT,G_CAMINO,.f.)
+ RESTSCREEN(0,0,MAXROW(),MAXCOL(),LA_SCR)
+ setcolor(ucolor)
+ select MXENCRAP
+ SET INDEX TO (cf('MXENRAX1')),(cf('MXENRAX2'))
+ GOTO FREG
+RETURN
+
+*
+ FUNCTION recarap
+ * RECALCULO DE FACTURA
+ PRIVATE R_REG
+ R_REG=RECNO()
+ STORE 0 TO XTOT_FAC,XTOT_NET
+ *xemision:=MXENCRAP->emision
+ GO TOP
+ DO WHILE !EOF()
+  xtot_net:=xtot_net+tot_ren
+  SKIP
+ ENDDO
+ GOTO R_REG
+ FR_TOTAL()
+ RETURN 0
+*
+
+ function futrap
+ LOCAL UCOLOR,BIEN:=.T.
+
+ *PIE()
+
+ UCOLOR=SETCOLOR()
+ SETCOLOR(C_ACHOICE)
+
+ IF !CALC_IVAPV()
+   SETCOLOR(UCOLOR)
+   RETURN .F.
+ ENDIF
+
+ FR_TOTAL()
+
+ IF XTOT_FAC<0
+  BIEN:=DEVOLVER()
+ ENDIF
+
+ IF BIEN
+  IF (BIEN:=FOR_PAGRAP(xtot_fac))
+*   IF XTOT_FAC>0
+*    GUERTO()
+*   ENDIF
+  ENDIF
+ ENDIF
+
+ SETCOLOR(UCOLOR)
+ RETURN BIEN
+
+*
+STATIC FUNCTION MULTIPAG
+LOCAL OK:=.T., UCOLOR,MSCR
+UCOLOR=SETCOLOR()
+MSCR=SAVESCREEN(7,8,20,79)
+DO WHILE .T.
+ BOXSOM(" FORMA DE PAGO ",7,8,15,75,1)
+ SETCOLOR(C_TEX1)
+ @  8,62 SAY [   Importe]
+ @  9,10 SAY [Efectivo ..........................................:]
+ @  9,62 GET XIMP_EFE PICT PIC10
+ @ 10,10 SAY [Cheque  N£mero:] GET XNUMBAN
+ @ 10,37 SAY [Banco:] GET XNOMBAN
+ @ 10,62 GET XIMP_BAN PICT PIC10
+ @ 11,10 SAY [Tarjeta N£mero:] GET XNUMTAR
+ @ 11,43 SAY [C¢digo:]  GET XCODTAR when !empty(xnumtar) VALID CHK_VEN('MXCTATAR','CTATAR',XCODTAR)
+ @ 11,62 GET XIMP_TAR PICT PIC10
+ @ 12,10 SAY [                                ...................:]
+ @ 12,10 SAY [Moneda extranjera:] GET XMONEDA
+ @ 12,33 SAY 'Cambio:' GET CAMBIO_DIA PICT '9999.999'
+ @ 12,62 GET XIMP_EXT PICT PIC10
+ @ 13,10 SAY [Cesta Ticket.......................................:]
+ @ 13,62 GET XIMP_CTK PICT PIC10
+ LEER()
+ IF ESCAPAR()
+  OK:=.F.
+  EXIT
+ ENDIF
+ IF !EMPTY(XIMP_CTK)
+    BufCtk(IF(MODIFICA,LNUMFAC,'TEMPORAL')+'PVE')
+    PideCtk('TEMPORAL','PVE',xImp_ctk)
+    if DbVacio(bufect,'E')=0
+       LOOP
+    endif
+ ENDIF
+ SETCOLOR(UCOLOR)
+  XTU= Round(XIMP_EXT*cambio_dia+XIMP_EFE+XIMP_BAN+XIMP_TAR+XIMP_CTK,2)
+ IF XTU<XTOT_FAC
+  PARE('ERROR: Total factura:'+LTRIM(STR(XTOT_FAC,12,G_REDONDO))+' Monto introducido:'+ LTRIM(STR(XTu,12,G_REDONDO)) )
+ ELSE
+  PARE('Total factura: '+LTRIM(STR(XTOT_FAC,12,G_REDONDO))+' Monto introducido:'+ LTRIM(STR(XTu,12,G_REDONDO)) )
+  EXIT
+ ENDIF
+ENDDO
+RESTSCREEN(7,8,20,79,MSCR)
+RETURN OK
+
+*
+FUNCTION FOR_PAGRAP(xtot_fac,N_CREDITO)
+* VENTANA DE FORMA DE PAGO
+local FP,PGSCR,FPAG,UCOLOR,lim:=4+len(act)-1
+LOCAL CLON_PAFP:={}
+LOCAL I
+PRIVATE sin_credito:=pcount()=2
+UCOLOR=SETCOLOR()
+PGSCR=SAVESCREEN(3,10,21,32)
+IF SIN_CREDITO
+ IF MODIFICA
+  FPAG:=MXENCRAP->MFP
+ ELSE
+  FPAG:=1
+ ENDIF
+ELSE
+ IF XCONDPAG>0
+  FPAG:=IF(MODIFICA,LEN(AFP),1)
+ ELSE
+  FPAG:=XMFP
+ ENDIF
+ENDIF
+
+FOR I=1 TO LEN(PAFP)
+  AADD(CLON_PAFP,PAFP[I])
+NEXT
+
+/*
+IF XTOT_FAC<0
+ AFILL(CLON_PAFP,.F.)
+ CLON_PAFP[1]:=.T.
+ CLON_PAFP[LEN(CLON_PAFP)]:=.T.
+ENDIF
+*/
+
+DO WHILE .T.
+ BOXSOM([ FORMA DE PAGO ], 4,10,4+len(afp)+1,28,1)
+ SETCOLOR(C_ACHOICE)
+
+ fpag:=ACHOICE(5,11,5+len(afp),27,afp,clon_pafp,.T.,fpag)
+
+ *MENU TO FPAG
+ RESTSCREEN(3,10,21,32,PGSCR)
+
+ IF FPAG=0
+  SETCOLOR(UCOLOR)
+  IF LASTKEY()=27 .AND. pv_breng='S'
+     LOOP
+  ELSE
+     RETURN .F.
+  ENDIF
+ ENDIF
+
+ IF FPAG<>0
+  XMFP=FPAG
+  PAGSCR=SAVESCREEN(9,31,15,79)
+  CUR_ON()
+  SETCOLOR(C_TEX1)
+  DO CASE
+   CASE FPAG=1
+    ximp_efe=xtot_fac
+    ximp_tar=0
+    ximp_ban=0
+    ximp_ext=0
+    ximp_ctk=0
+    STORE SPACE(16) TO  XNOMBAN
+    STORE SPACE(10) TO  XNUMBAN
+    STORE SPACE(16) TO XNUMTAR
+    STORE SPACE(3)  TO XCODTAR
+    XFP:=1
+    XCOBRADA:=.T.
+    IF XTOT_FAC>0
+     IF !GUERTO()
+       LOOP
+     ENDIF
+    ENDIF
+   CASE FPAG=2
+    BOXSOM([ CHEQUE ],9,31,12,65)
+    @ 10,32 SAY [ N£mero:] GET XNUMban PICT [@!]
+    @ 11,32 SAY [  Banco:] GET XNOMBAN PICT [@!]
+    READ
+    ximp_ban=xtot_fac
+    ximp_efe=0
+    ximp_tar=0
+    ximp_ext=0
+    ximp_ctk=0
+    XCOBRADA:=!EMPTY(XNUMBAN)
+    STORE SPACE(16) TO XNUMTAR
+    STORE SPACE(3)  TO XCODTAR
+    XFP:=2
+   CASE FPAG>=3 .AND. FPAG<=lim
+    BOXSOM([ TARJETA ],9,31,12,77)
+    @ 10,32 SAY [ Nombre: ]+AFP[FPAG]
+    @ 11,32 SAY [ N£mero:] GET XNUMTAR PICT [@!]
+    READ
+    XCODTAR:=ACT[FPAG-3]
+    ximp_tar=xtot_fac
+    ximp_ban=0
+    ximp_efe=0
+    ximp_ext=0
+    ximp_ctk=0
+    STORE SPACE(16) TO  XNOMBAN
+    STORE SPACE(10) TO  XNUMBAN
+    XFP:=3
+    XCOBRADA:=!EMPTY(XNUMTAR)
+   CASE FPAG=LIM+2
+    BOXSOM([ MONEDA EXTRANJERA ],9,31,13,77)
+    DO WHILE .T.
+     @ 10,32 SAY [ Moneda:] GET XMONEDA VALID !EMPTY(Xmoneda)
+     @ 10,52 SAY 'Cambio:' GET CAMBIO_DIA PICT '9999.999'
+     READ
+     IF ESCAPAR()
+      EXIT
+     ENDIF
+     //XIMP_EXT=ROUND(100*XTOT_FAC/CAMBIO_DIA+.5,G_REDONDO)/100
+     XIMP_EXT=(XTOT_FAC/CAMBIO_DIA)
+     *ximpextot=ximp_ext
+     @ 11,32 SAY [Importe:] GET Ximp_ext PICT PIC10 VALID !EMPTY(Ximp_ext)
+     READ
+     if lastkey()=5
+      keyboard salida
+      loop
+     endif
+     IF ESCAPAR()
+      EXIT
+     ENDIF
+     //@ 11,52 SAY [ Total:]+str(Ximp_ext*cambio_dia,10,G_REDONDO)
+     @ 11,52 SAY [ Total:]+str(Ximp_ext*cambio_dia,10,2)
+     *@ 12,32 SAY [Cambio moneda nacional:]+str(cambio_dia*Ximp_ext-XTOT_FAC,10,G_REDONDO)
+     IF DECIS('¨ conforme ?')='S'
+      XCOBRADA:=.T.
+      EXIT
+     ENDIF
+    ENDDO
+    ximp_tar=0
+    ximp_ban=0
+    ximp_efe=0
+    STORE SPACE(16) TO  XNOMBAN
+    STORE SPACE(10) TO  XNUMBAN
+    STORE SPACE(16) TO  XNUMTAR
+    STORE SPACE(3) TO XCODTAR
+    XFP:=4
+   CASE FPAG=lim+3
+    ximp_tar=0
+    ximp_ban=0
+    ximp_efe=0
+    ximp_ext=0
+    ximp_ctk=0
+    if MULTIPAG()
+     xcobrada:=.t.
+     XFP:=5
+    endif
+    IF DIFCERO(XIMP_EFE)
+     IF !GUERTO()
+       LOOP
+     ENDIF
+    ENDIF
+   CASE FPAG=LIM+4
+    BufCtk(IF(MODIFICA,LNUMFAC,'TEMPORAL')+'PVE')
+    PideCtk('TEMPORAL','PVE',xTot_Fac)
+    if DbVacio(bufect,'E')=0
+       LOOP
+    endif
+    xNumpag:='CESTA TICKET'
+    xNompag:='PAGO CESTA TICKET'
+    ximp_ban=0
+    ximp_efe=0
+    ximp_tar=0
+    ximp_ext=0
+    ximp_ctk=xtot_fac
+    XCOBRADA:=.T.
+    STORE SPACE(16) TO XNUMTAR
+    STORE SPACE(3)  TO XCODTAR
+    XFP:=6
+   CASE FPAG=LIM+6
+    IF pv_credi='N'
+       Pare('NO PUEDE SELECCIONAR CREDITO PARA UN CLIENTE ESPORADICO')
+       LOOP
+    ENDIF
+    IF !sin_credito
+     IF !A_CREDITO()
+      LOOP
+     ENDIF
+    ELSE
+     loop
+    ENDIF
+  ENDCASE
+  IF FPAG < lim+5 .and. !sin_credito
+   XCONDPAG:=0
+  ENDIF
+  CUR_OFF()
+  RESTSCREEN(9,31,15,79,PAGSCR)
+  IF !ESCAPAR() .OR. XFP=6
+   EXIT
+  ENDIF
+ ELSE
+  EXIT
+ ENDIF
+ENDDO
+
+if pv_abrdes='N'
+   IF XCOBRADA
+      OPENCAJA()
+   ENDIF
+endif
+
+SETCOLOR(UCOLOR)
+RETURN .T.
+
+********
+ STATIC  function guerto
+  Local ucolor,xcuanto,OK:=.F.
+  LOCAL USCR:=SAVESCREEN(8,20,17,63)
+  if pv_abrdes='N'
+     OPENCAJA()
+  endif
+  if difcero(ximp_efe)
+   XCUANTO=XIMP_EFE
+   ucolor=setcolor()
+   SETCOLOR(C_TEX1)
+   WHILE .T.
+    boxsom([ CAJA ],8,20,16,62,1)
+    @ 10,25 say 'TOTAL FACTURA EFECTIVO: '+STR(XIMP_EFE,12,G_REDONDO)
+    @ 12,25 say 'RECIBE EN EFECTIVO ...:' GET XCUANTO PICT PIC12 VALID XCUANTO>=XIMP_EFE
+    @ 14,25 say 'CAMBIO ...............: '+STR(XCUANTO-XIMP_EFE,12,G_REDONDO)
+    LEER()
+    @ 14,25 say 'CAMBIO ...............: '+STR(XCUANTO-XIMP_EFE,12,G_REDONDO)
+
+    IF XCUANTO>=XIMP_EFE
+     XRECIBE:=XCUANTO
+     EXIT
+    ENDIF
+
+   ENDDO
+   IF !ESCAPAR()
+
+   DO MENSAJ WITH '*** PRESIONE CUALQUIER TECLA ***'
+   WAIT
+   OK:=.T.
+   ENDIF
+
+   DO MENSAJ WITH ''
+   RESTSCREEN(8,20,17,63,USCR)
+
+   SETCOLOR(UCOLOR)
+  endif
+RETURN OK
+
+***************************************************************
+func new_num(el_num)
+local ureg
+
+if !modifica .and. !empty(el_num)
+ ureg:=recno()
+ seek(el_num)
+ while found()
+  el_num:=prox_simb(el_num)
+  seek(el_num)
+ endd
+ goto ureg
+endif
+return el_num
+
+STATIC function DETREN
+LOCAL I
+FOR I=1 TO R_LEN
+ IF !EMPTY(R_EDC[I,16])
+  @ CONTLIN,R_EDC[I,15] SAY EVAL(R_EDC[I,16]) PICT eval(R_EDC[I,17])
+ ENDIF
+NEXT
+RETURN
+
+STATIC FUNCTION AFP
+local usel:=select()
+AADD(AFP,[Efectivo])
+AADD(pafp,.t.)
+AADD(AFP,[Cheque])
+AADD(pafp,.t.)
+AADD(AFP,REPLICATE([Ä],17))
+AADD(pafp,.f.)
+SELECT MXCTATAR
+GO TOP
+WHILE !EOF()
+ AADD(AFP,TRIM(NOMTAR))
+ AADD(ACT,CODTAR)
+ AADD(pafp,.t.)
+ SKIP
+ENDDO
+GO TOP
+AADD(AFP,REPLICATE([Ä],17))
+AADD(pafp,.f.)
+AADD(AFP,[Moneda extranjera])
+AADD(pafp,.t.)
+AADD(AFP,[Combinada])
+AADD(pafp,.t.)
+AADD(AFP,[Cesta Ticket])
+AADD(pafp,.t.)
+AADD(AFP,REPLICATE([Ä],17))
+AADD(pafp,.f.)
+AADD(AFP,[Cr‚dito])
+AADD(pafp,PV_CREDI='S')
+select (usel)
+RETURN 0
+
+
+static FUNC a_credito
+local bien:=.f.,grscr2,grscr1,XTIPCRE
+
+IF mxctacli->SALDO+XTOT_FAC>mxctacli->LIM_CRE .AND. DIFCERO(mxctacli->LIM_cre) .AND. XTOT_FAC>0
+ PARE('PRECAUCION. L¡mite de cr‚dito: '+alltrim(str(mxctacli->lim_cre,10))+' saldo + total factura: '+alltrim(str(mxctacli->saldo+xtot_fac)) )
+ENDIF
+gscr1=SAVESCREEN(4,33,8,59)
+
+WHILE .T.
+ IF XTOT_FAC<0
+   BIEN:=.T.
+   XCONDPAG:=1
+ ELSE
+  BIEN=.F.
+  BOXSOM([ CREDITO ],4,33,7,57)
+  @ 5,34 PROMPT [ Fecha de vencimiento ]
+  @ 6,34 PROMPT [ Giros                ]
+  MENU TO XCONDPAG
+  RESTSCREEN(4,33,8,59,gscr1)
+
+  IF XCONDPAG=0
+   EXIT
+  ENDIF
+
+  IF XCONDPAG=1
+   ******************* AL VENCIMIENTO
+   gscr2=SAVESCREEN(4,54,7,70)
+   BOXSOM('VENCIMIENTO',4,54,6,69)
+   @ 5,58 GET XVENCE
+   LEER()
+   RESTSCREEN(4,54,7,70,gscr2)
+   IF ESCAPAR() .OR. EMPTY(XVENCE)
+    LOOP
+   ENDIF
+   XFP   :=8
+   XABONO:=0
+   BIEN  :=.T.
+  ENDIF
+ ENDIF
+
+ IF XCONDPAG=2
+  ****************** CON GIROS
+  CSCR=SAVESCREEN(9,10,12,47)
+
+  WHILE .T.
+   BOXSOM([ PAGO INICIAL ], 9,10,11,45)
+   @ 10,12 SAY [ Abono:] GET XABONO PICT PIC14 VALID (XABONO>=0 .AND. XABONO<XTOT_FAC)
+   LEER()
+   RESTSCREEN(9,10,12,47,CSCR)
+   IF ESCAPAR()
+    BIEN = .F.
+    EXIT
+   ENDIF
+   IF DIFCERO(XABONO)
+    IF bien:=FOR_PAGRAP(xabono,1)
+     exit
+    ENDIF
+   ENDIF
+  ENDDO
+
+  IF BIEN
+   BIEN=.F.
+   IF PAN_gir(XTOT_FAC-XABONO)
+    BIEN=GENGIRO(MXCTACLI->CODCLI,'',W_MEM[1,1],XPERGIRO,XNUMGIRO,XINTERES,XTOT_FAC-XABONO,'FACTURA P/V')
+   ENDIF
+  ENDIF
+ ENDIF
+
+ IF BIEN
+  XFP:=IF(XCONDPAG=1,8,9)
+  xcobrada:=.t.
+  EXIT
+ ENDIF
+
+ENDDO
+
+return BIEN
+
+****************************  GIROS ****************************
+* REQUIERE COMO VARIABLES AMBIENTALES:
+* BUFGIR
+* XSERIE
+* XPERGIRO
+* XNUMGIRO
+* XPORINT
+* XINTERES
+
+function pan_gir(c)
+local ok:=.f., us:=savescreen(12,15,16,36), ucol:=setcolor(),ti
+setcolor(c_tex3)
+BOXSOM([ GIROS ],12,17,15,35,3)
+@ 13,18 prompt 'Interes compuesto'
+@ 14,18 prompt 'Interes simple   '
+menu to ti
+restscreen(12,15,16,36,us)
+do case
+ case ti=1
+ ok:=pangir1(c)
+ case ti=2
+ ok:=pangir2(c)
+endcase
+setcolor(ucol)
+return ok
+
+FUNCTION PANGIR1(capital)
+local UCOLOR:=SETCOLOR(),GSCR:=SAVESCREEN(10,4,20,47)
+local xanos  :=ROUND(xpergiro*xnumgiro/360,0)
+local xnumano:=round(xnumgiro/xanos,0), devo:=.f.
+local xcuota
+
+BOXSOM([ GIROS INTERES COMPUESTO ],11,4,18,45,3)
+SETCOLOR(C_TEX3)
+@ 12,6 SAY 'A financiar...........: ' +LTRIM(STR(capital,12,G_REDONDO))
+@ 13,6 SAY 'A¤os..................:' GET XANOS   PICT '99' VALID XANOS>0
+@ 14,6 SAY 'Cuotas por a¤o........:' GET XNUMANO PICT '99'    VALID xnumano>0
+@ 15,6 SAY '% Interes anual.......:' GET XPORINT PICT '99.99' VALID XPORINT>=0
+@ 16,6 SAY 'Intereses.............: '
+@ 17,6 SAY 'Total.................: '
+leer()
+if !escapar()
+
+ xnumgiro:=xnumano*xanos
+ xpergiro:=ROUND(xanos*360/xnumgiro,0)
+
+ XCUOTA   := capital*(((XPORINT/100)/xnumano)/(1-(1+((XPORINT/100)/xnumano))**(-xnumano*xanos )))
+ @ 16,6 SAY 'Intereses.............: '+trans(XINTERES := xcuota*xnumgiro - capital,'99,999,999.99')
+ @ 17,6 SAY 'Total.................: '+trans(xinteres+ capital,'99,999,999.99' )
+ RESTSCREEN(10,4,20,47,GSCR)
+
+ devo:=.t.
+else
+ RESTSCREEN(10,4,20,47,GSCR)
+endif
+
+SETCOLOR(UCOLOR)
+
+RETURN devo
+
+FUNCTION PANGIR2(TOT_CONV)
+local UCOLOR:=SETCOLOR(),GSCR:=SAVESCREEN(12,2,19,59)
+
+BOXSOM([ GIROS ],12,2,18,57,3)
+SETCOLOR(C_TEX3)
+@ 13,18 SAY 'Total a convertir: ' +LTRIM(STR(TOT_CONV,12,G_REDONDO))
+@ 14, 4 SAY 'Per¡odo de dias entre cada giro:' GET XPERGIRO PICT '999' VALID XPERGIRO>0
+@ 15,11 SAY 'N£mero de giros a emitir:' GET XNUMGIRO PICT '99' VALID XNUMGIRO>0
+@ 16,23 SAY '% de Interes:' GET XPORINT PICT '99.99' VALID XPORINT>=0
+@ 17,26 SAY 'Intereses: '+STR(XINTERES,12,G_REDONDO)
+leer()
+XINTERES=ROUND(TOT_CONV*XPORINT/100,G_REDONDO)
+@ 17,26 SAY 'Intereses: '+STR(XINTERES,12,G_REDONDO)
+
+SETCOLOR(UCOLOR)
+RESTSCREEN(12,2,19,59,GSCR)
+
+IF ESCAPAR()
+ RETURN .F.
+ENDIF
+
+RETURN .T.
+
+
+STATIC FUNCTION GENGIRO
+PARAMETER XCLIENTE,XNUMERO,LA_FECHA,XPERGIRO,XNUMGIRO,XINTERES,YMONTO_TOT,XCONCEPTO
+
+PRIVATE ANO,MES,DIA,I,ACARREO,ACARREO1,YMONTO,YMONTO1,XNUMORG,RET:=.T.
+PRIVATE XVENCE,XEMISION,XIMPORTE, LA_SERIE, XTIPO,XCODMOVCLI,XREFER,MI_IMPORTE,FSERIE
+
+MENSAJ("GENERANDO GIROS ...")
+
+FSERIE=G_CAMINO+[MXSERIE.MEM]
+IF !MODIFICA
+ IF FILE(FSERIE)
+  RESTORE FROM (FSERIE) ADDITIVE
+  XSERIE=PROX_SIMB(LA_SERIE)
+ ELSE
+  XSERIE=[AAA]
+ ENDIF
+ENDIF
+IF ABRIR('MXTRACOB',CF("MXTRACOB"),[S],CF("MXTRCBX2"))
+ COPY STRUC TO (BUFGIR)
+ IF !MODIFICA .OR. EMPTY(XSERIE)
+  IF EMPTY(XSERIE)
+   XSERIE=[AAA]
+  ENDIF
+  DO WHILE .T.
+   SELE MXTRACOB
+   SEEK(XSERIE)
+   IF !FOUND()
+    EXIT
+   ELSE
+    XSERIE=PROX_SIMB(XSERIE)
+   ENDIF
+  ENDDO
+ ENDIF
+ENDIF
+CERRAR('MXTRACOB')
+
+IF ABRIR([BUFGIR],BUFGIR,[E])
+
+XCODMOVCLI=XCLIENTE
+XTIPO='GR'
+STORE LA_FECHA TO XVENCE,XEMISION
+
+if day(xvence)=31
+ xvence=xvence-1
+endif
+
+STORE XNUMERO TO XREFER,XNUMORG
+
+YMONTO_TOT=YMONTO_TOT+XINTERES
+*YMONTO= ROUND(YMONTO_TOT/XNUMGIRO,2)
+YMONTO= ROUND(YMONTO_TOT/XNUMGIRO,0)
+YMONTO1=(YMONTO_TOT-XNUMGIRO*YMONTO)+YMONTO
+DENOM=STRZERO(XNUMGIRO,2)
+
+I=1
+
+DO WHILE I<=XNUMGIRO
+ XNUMDOC=XSERIE+STRZERO(I,2)+'/'+DENOM
+
+ MES=MONTH(XVENCE)
+ DIA=DAY(XVENCE)
+ ANO=YEAR(XVENCE)-1900
+
+ IF MES=2 .AND. DIA=28
+  STORE 30 TO DIA
+ ENDIF
+
+ ACARREO=INT((DIA+XPERGIRO-1)/30)
+ DIA= (DIA+XPERGIRO-1)-30*ACARREO+1
+ ACARREO1=INT((MES+ACARREO-1)/12)
+ MES= (MES+ACARREO-1)-12*ACARREO1+1
+ ANO= (ANO+ACARREO1)-100*(INT((ANO+ACARREO1)/100))
+
+ IF MES=2 .AND. DIA>28
+  STOR 28 TO DIA
+ ENDIF
+
+ XVENCE=CTOD(STRZERO(DIA,2)+'/'+STRZERO(MES,2)+'/'+STRZERO(ANO,2))
+
+ SELE BUFGIR
+ APPEND BLANK
+ IF I=XNUMGIRO
+  XIMPORTE=YMONTO1
+  RPLGIR()
+ ELSE
+  XIMPORTE=YMONTO
+  RPLGIR()
+ ENDIF
+ I=I+1
+ENDDO
+ENDIF
+
+WHILE .T.
+ LIMPIA()
+ GO TOP
+ EDIT_VENTANA('GIROS')
+ KEYBOARD SALIDA
+ WAIT
+ SELECT BUFGIR
+ GO TOP
+ SUM IMPORTE TO MI_IMPORTE
+ IF STR(MI_IMPORTE,12,G_REDONDO)<>STR(YMONTO_TOT,12,G_REDONDO)
+  PARE([Suma de giros es diferente al total a convertir. Diferencia ]+LTRIM(STR(YMONTO_TOT-MI_IMPORTE,12,G_REDONDO)))
+  IF DECIS([¨ Desea revisar giros ?])=[N]
+   RET=.F.
+   EXIT
+  ENDIF
+ ELSE
+  EXIT
+ ENDIF
+ENDDO
+
+CERRAR([BUFGIR])
+
+RETURN RET
+
+
+STATIC function RPLGIR
+* REEMPLAZO EN EL REGISTRO
+
+REPLACE CODMOVCLI  WITH XCODMOVCLI,TIPO WITH XTIPO,NUMDOC WITH XNUMDOC,EMISION WITH XEMISION
+REPLACE VENCE WITH XVENCE, REFER WITH XREFER, CONCEPTO WITH XCONCEPTO,IMPORTE WITH XIMPORTE
+REPLACE ORIGEN WITH DOC_ORIGEN,NUMORG WITH XNUMORG
+RETURN
+
+function cobrar(X1,X2,X3)
+PRIVATE XCOBRADA:=.F., MODIFICA:=.F.
+if !cobrada
+ OFF_KEY()
+ asgenc(1)
+ SELECT MXENCRAP
+ if for_pagrap(mxencrap->tot_fac)
+  IF XCOBRADA
+   *GUERTO()
+   rec_lock(0)
+   rpl_pag(1)
+   unlock
+   EVAL(W_DET)
+   IF !mxencrap->impresa
+    IF PV_PAUSA='N'
+     KEYBOARD SALIDA
+    ENDIF
+    //PRE_EMI(TRIM(PV_REP)+'.INF',' FACTURA ','MXENCRAP',XNUMFAC)
+    IF EMPTY(PV_REP)
+       DOC_EMI(' F.T.P.V. ',G_LIBRAP,'MXENCTPV',XNUMFAC)
+    ELSE
+       PRE_EMI(TRIM(PV_REP)+'.INF',' FACTURA ','MXENCRAP',XNUMFAC)
+    ENDIF
+    SELECT MXENCRAP
+    rec_lock(0)
+    mxencrap->impresa:=.t.
+    unlock
+   ENDIF
+
+   DEPCAJAPV()
+
+  endif
+ endif
+* CERRAR('BUFFER')
+ ON_KEY()
+ELSE
+ PARE('FACTURA YA FUE COBRADA')
+endif
+SELECT MXENCRAP
+RETURN
+
+Function imprimir(X1,X2,X3)
+ IF PV_F8='S'
+    SELECT MXENCRAP
+    OFF_KEY()
+    IF !EMPTY(PV_REP)
+       IF PV_PAUSA='N'
+          KEYBOARD SALIDA
+       ENDIF
+       PRE_EMI(TRIM(PV_REP)+'.INF',' FACTURA ','MXENCRAP',mxencrap->NUMFAC)
+    ENDIF
+    SELECT MXENCRAP
+    rec_lock(0)
+    mxencrap->impresa:=.T.
+    unlock
+    ON_KEY()
+ ENDIF
+RETURN
+
+STATIC function DEVOLVER
+LOCAL CSCR:=SAVESCREEN(9,10,12,47),DEVO:=.F.
+   BOXSOM([ DEVOLUCION ], 9,10,11,45,3)
+   @ 10,12 SAY [ Factura:] GET XDEVFAC valid valdevo(xdevfac)
+   LEER()
+   RESTSCREEN(9,10,12,47,CSCR)
+   DEVO:=!ESCAPAR()
+RETURN DEVO
+
+static function valdevo(x)
+local usel:=select()
+local devo:=.t.
+select mxencrap
+if !dbseek(x)
+ pare('Factura no existe')
+ devo:=.f.
+endif
+select(usel)
+return devo
+
+************************
+function busrap
+local ureg,ok,s:=savescreen(9,10,14,62),XNUMERO:=SPACE(8),UCOL:=SETCOLOR()
+private XCLIENTE:=SPACE(if(pv_credi='S',8,55))
+SETCOLOR(C_TEX1)
+WHILE .T.
+BOXSOM([ BUSCAR FACTURA ], 9,10,12,60)
+@ 10,12 SAY [  N£mero:] GET Xnumero
+@ 11,12 SAY [ Cliente:] GET Xcliente  when empty(xnumero) VALID IF(PV_CREDI='S',CHK_VEN('MXCTACLI','CTACLI',Xcliente),.T.) PICT '@S35'
+LEER()
+if !escapar()
+ select mxencrap
+ UREG:=RECNO()
+ if !empty(xnumero)
+  seek(xnumero)
+  ok:= found()
+ else
+  //locate rest for upper(alltrim(xcliente)) = upper(alltrim(nombre))
+  locate for upper(alltrim(xcliente)) $ upper(alltrim(nombre))
+  ok:=!eof()
+ endif
+ if ok
+   EXIT
+ else
+  goto ureg
+  pare('NO ENCONTRADO')
+ endif
+ELSE
+ EXIT
+ENDIF
+ENDDO
+restscreen(9,10,14,62,s)
+SETCOLOR(UCOL)
+return
+
+
+function delcaj(xnumero)
+local usel:=select()
+select mxcajtpv
+seek(xnumero)
+if found()
+ WHILE !FLOCK()
+ END
+ delete while numero=xnumero
+ UNLOCK
+endif
+select(usel)
+return
+
+FUNCTION DEPCAJAPV
+local usel:=select()
+*MENSAJ('En caja ...')
+
+IF !EMPTY(MXENCRAP->IMP_EFE)
+ rplcajPV(MXENCRAP->EMISION,MXENCRAP->NUMFAC,'EF','EFECTIVO','',MXENCRAP->IMP_EFE)
+ENDIF
+
+IF !EMPTY(MXENCRAP->IMP_TAR)
+ rplcajPV(MXENCRAP->EMISION,MXENCRAP->NUMFAC,MXENCRAP->CODTAR,BUSCAR_UBICAR('MXCTATAR',MXENCRAP->CODTAR,'NOMTAR'),MXENCRAP->NUMTAR,MXENCRAP->IMP_TAR)
+ENDIF
+
+IF !EMPTY(MXENCRAP->IMP_BAN)
+ rplcajPV(MXENCRAP->EMISION,MXENCRAP->NUMFAC,'CH',MXENCRAP->NOMBAN,MXENCRAP->NUMBAN,MXENCRAP->IMP_BAN)
+ENDIF
+
+IF !EMPTY(MXENCRAP->IMP_EXT)
+ rplcajPV(MXENCRAP->EMISION,MXENCRAP->NUMFAC,'ME',MXENCRAP->MONEDA,alltrim(STR(MXENCRAP->CAMBIOMON)),((MXENCRAP->TOT_FAC/MXENCRAP->CAMBIOMON)*MXENCRAP->CAMBIOMON))
+ENDIF
+
+IF !EMPTY(MXENCRAP->IMP_CTK)
+ rplcajPV(MXENCRAP->EMISION,MXENCRAP->NUMFAC,'CT',MXENCRAP->MONEDA,alltrim(STR(MXENCRAP->CAMBIOMON)),MXENCRAP->IMP_CTK)
+ENDIF
+
+*limpia()
+select(usel)
+RETURN
+
+function rplcajPV(XFECHA,xnumero,xformapag,xnompag,xnumpag,ximporte)
+select mxcajtpv
+add_rec(0)
+replace numero   with xnumero,;
+        formapag with xformapag,;
+        nompag   with xnompag, ;
+        numpag   with xnumpag, ;
+        importe  with ximporte,;
+        CAJA     WITH XCAJA,;
+        FECHA_CAJ WITH XFECHA
+return
+
+function porconfor(P1,P2,P3)
+local UKEYF9:=SETKEY(-8), UKEYF8:=SETKEY(-7), ukeyf10:=setkey(-9)
+PRIVATE EL_QQNUM:=MXENCRAP->NUMFAC
+
+SETKEY(-7,NIL)
+SETKEY(-8,NIL)
+SETKEY(-9,NIL)
+
+edit_ventana('CONFORMA')
+
+ON_KEY()
+SETKEY(-8,UKEYF9)
+SETKEY(-7,UKEYF8)
+SETKEY(-9,UKEYF10)
+
+SELECT MXENCRAP
+SET ORDER TO 1
+SEEK(EL_QQNUM)
+ASGENC()
+W_DETREG()
+DETENC()
+return
+
+FUNCTION CALC_IVAPV
+local ISCR:= SAVESCREEN(12,23,18,57),I
+PRIVATE YBASE:={0,0,0,0}, YDESIVA:={0,0,0,0}, YIVA:={0,0,0,0}, FLIPFLOP:=.T.
+ YIVA[1]:=IVA('A',xEMISION)
+ YIVA[2]:=IVA('B',xEMISION)
+ YIVA[3]:=IVA('C',xEMISION)
+ YIVA[4]:=IVA('D',xEMISION)
+
+XBASE_A:=0
+XTOT_IVA:=0
+
+SELE BUFFER
+GO TOP
+
+
+ DBEVAL({||SUM_IVAPV()},{||!EMPTY(IVA)})
+
+ IF DIFCERO(XDESCUENTO)
+  FOR I:=1 TO 4
+   YBASE[I]:= YBASE[I] - YDESIVA[I]*ABS(DIV(XDESCUENTO,XTOT_NET,10))
+  NEXT
+ ENDIF
+
+ FOR I:=1 TO 4
+  XBASE_A := XBASE_A  + YBASE[I]
+  XTOT_IVA:= XTOT_IVA + ROUND(YBASE[I]*(Yiva[I]/100),G_REDONDO)
+ NEXT
+
+IF XRECARGO$'N,0,2,3'
+ XTOT_IVA:=0
+ XBASE_A:=0
+ENDIF
+
+XTOT_FAC:=XTOT_NET+XDESCUENTO+XCARGO+XTOT_IVA
+
+SETCOLOR(C_ACHOICE)
+RETURN .T.
+
+static function sum_ivaPV
+local xiva
+IF (xiva:=at(iva,'ABCD'))>0
+ IF FLIPFLOP
+  XPOR_IVA:=YIVA[XIVA]
+  FLIPFLOP:=.F.
+ ENDIF
+ YBASE[XIVA]:=YBASE[XIVA]+TOT_REN
+ Ydesiva[XIVA]:=Ydesiva[XIVA]+TOT_REN
+ENDIF
+return
+
+
+*********************************************************************
+FUNC GETpie(A1,B1,C1)
+LOCAL N, UCOLOR:=SETCOLOR(),USCR:=SAVESCREEN(10,40,18,75), ED_GET
+
+if pv_imp='S'
+ if !CheqClave(pv_clavdesc,"Indique clave para descuentos/Cargos:")
+  Pare('Clave incorrecta')
+  Return .f.
+ endif
+endif
+
+*if !chk_pas(1)
+*return
+*endif
+
+SAVE GET TO ED_GET
+OFF_KEY()
+N:=ABS(XTOT_NET)
+XDESCUENTO:=ABS(XDESCUENTO)
+SETCOLOR(C_TEX3)
+BOXSOM('',10,40,16,74,3)
+@ 11,42 SAY 'Subtotal......: ' + trans(XTOT_NET,tran14)
+@ 12,42 SAY 'Descuento (%).:' GET pv_dcto    PICT '99.9999' VALID CALC_IPPP(N,1)
+@ 13,42 SAY 'Importe Dcto..:' GET xdescuento PICT '9999999.999999' VALID CALC_DPPP(N,1)
+@ 14,42 SAY 'Cargo (%).....:' GET pv_cargo   PICT '99.9999' VALID CALC_IPPP(N,2)
+@ 15,42 SAY 'Importe Cargo.:' GET xcargo    PICT '9999999.999999' VALID CALC_DPPP(N,2)
+leer()
+
+if xtot_fac>=0
+   XDESCUENTO:=-XDESCUENTO
+endif
+
+ IF A1='MENUH'
+  ON_KEY()
+ ELSE
+  CUR_ON()
+ ENDIF
+
+IF !ESCAPAR()
+ FR_TOTAL()
+ENDIF
+
+IF !EMPTY(ED_GET)
+ RESTORE GET FROM ED_GET
+ENDIF
+
+RESTSCREEN(10,40,18,75,USCR)
+SETCOLOR(UCOLOR)
+RETURN
+
+STATIC FUNCTION CALC_IPPP(N,k)
+if k=1
+ XDESCUENTO:=ROUND(N*PV_DCTO/100,G_REDONDO)
+ RETURN PV_DCTO>=0
+else
+ Xcargo:=ROUND(N*PV_cargo/100,G_REDONDO)
+endif
+RETURN pv_cargo>=0
+
+STATIC FUNCTION CALC_DPPP(N,k)
+if k=1
+ PV_DCTO:=ROUND(XDESCUENTO/N*100,2)
+ RETURN XDESCUENTO>=0 .AND.PV_DCTO<100
+else
+ PV_cargo:=ROUND(xcargo/N*100,2)
+endif
+RETURN  Xcargo>=0 .AND.PV_CARGO<100
+
+function RECAPREPV
+PARAMETER P1,P2,P3
+PRIVATE XIVA:=W_MEM[2,1]
+IF XRECARGO$'N2' .AND. !EMPTY(XIVA)
+  W_MEM[5,1] :=W_MEM[5,1]  + W_MEM[5,1] *IVA(XIVA,xemision)/100
+ENDIF
+RETURN
+
+FUNCTION VALPREPV(XPRECIO)
+LOCAL SS,I,UCOL,XPRE:={},X,XP:={},g_redondo1:=g_redondo,el_desc:={}
+IF LASTKEY()=5
+ RETURN .T.
+ENDIF
+IF XPRECIO=0.AND.(W_MEM[1,1]='-' .OR. W_MEM[1,1]='*')
+   RestarIvaPv()
+   RETURN .T.
+ENDIF
+IF W_MEM[1,1]='/'
+   RestarIvaPv()
+   RETURN .T.
+ENDIF
+IF XPRECIO<=0 .OR. PV_PVP="T"
+ g_redondo:=if(pv_rdtp='s',g_redondo,2)
+ SELECT MXCTAINV
+ AADD(XPRE,[Tarifa Cantidad       Precio Dc Factor])
+ AADD(xp,.f.)
+ if precio_a<>0
+  AADD(XPRE,[A             1 ]+STR(e_importe(PRECIO_A,xemision),12,G_REDONDO)+' '+STR(des_a,5,2))
+  AADD(xp,.t.)
+  AADD(el_desc,des_a)
+  endif
+ if precio_b<>0
+  AADD(XPRE,[B             1 ]+STR(e_importe(PRECIO_B,xemision),12,G_REDONDO)+' '+STR(des_b,5,2))
+  AADD(xp,.t.)
+  AADD(el_desc,des_b)
+ endif
+ if precio_c<>0
+  AADD(XPRE,[C             1 ]+STR(e_importe(PRECIO_C,xemision),12,G_REDONDO)+' '+STR(des_c,5,2))
+  AADD(xp,.t.)
+  AADD(el_desc,des_c)
+ endif
+ if precio_d<>0
+  AADD(XPRE,[D             1 ]+STR(e_importe(PRECIO_D,xemision),12,G_REDONDO)+' '+STR(des_d,5,2))
+  AADD(xp,.t.)
+  AADD(el_desc,des_d)
+ endif
+ IF ABRIR('MXLISPRE',cf('MXLISPRE'),'S',cf('MXLIPRX1'))
+  IF DbSeek(MXCTAINV->CODART)
+     do while !eof() .AND. CODART=MXCTAINV->CODART
+        aadd(xpre,CODPRE+'      '+STR(if(empty(CANTIDAD),1,cantidad),4)+' '+STR(E_IMPORTE(PRECIO,XEMISION),12,G_REDONDO)+;
+        ' '+STR(POR_DES,2)+' '+FACTOR)
+        aadd(xp,.t.)
+        AADD(el_desc,por_des)
+        skip
+     enddo
+  endif
+  cerrar('MXLISPRE')
+ ENDIF
+ if len(xpre)=1
+    pare('No hay lista de precios disponibles')
+    SELECT BUFFER
+    g_redondo:=g_redondo1
+    return .f.
+ endif
+ X:=Min(10+LEN(XPRE),MAXROW()-3)
+ SELECT BUFFER
+ SS=SAVESCREEN(9,36,X+1,76)
+ UCOL=SETCOLOR()
+ BOXSOM([ PRECIOS ],9,36,X,75,1)
+ SETCOLOR(C_ACHOICE)
+ I=ACHOICE(10,37,X-1,74,XPRE,xp)
+ SETCOLOR(UCOL)
+ RESTSCREEN(9,36,X+1,76,SS)
+ IF I>0
+  MI_TIPO:=SUBSTR(XPRE[I],33,3)
+  W_MEM[5,1]=ROUND(VAL(SUBSTR(XPRE[I],17,12)),G_REDONDO)
+  *XDESC:=VAL(SUBSTR(XPRE[I],30,2))
+  XDESC:=el_desc[i-1]
+  w_mem[6,1]:=XDESC
+  g_redondo:=g_redondo1
+  IF MI_TIPO='DEF'
+     W_MEM[5,1]:=W_MEM[5,1]*CambioMon(xemision,time())
+  ELSE
+     CAMBIO_MONEDA(SUBSTR(XPRE[I],33,3))
+  ENDIF
+  XTARIFR=SUBSTR(XPRE[I],1,5)
+ ENDIF
+ RETURN .F.
+ENDIF
+*RestarIvaPv()
+RETURN (W_MEM[5,1]>0 .AND. W_MEM[4,1]*W_MEM[5,1]<VAL(PIC12))
+
+FUNCTION CAMBIO_MONEDA(ymoneda)
+Local usel:=SELECT()
+IF !EMPTY(YMONEDA)
+   IF ABRIR('MXMONEY',cf('MXMONEY'),'S')
+      LOCATE FOR MONEDA=YMONEDA
+      IF !EOF()
+         w_mem[5,1]:=round(W_MEM[5,1]*CAMBIO,g_redondo)
+      ENDIF
+      CERRAR('MXMONEY')
+   ENDIF
+ENDIF
+SELECT(USEL)
+RETURN(nil)
+
+************************ inventario
+STATIC FUNCTION GEN_INVPV
+* GENERA MOVIMIENTOS DE INVENTARIO EN EL P. DE VENTAS
+PRIVATE XORIGEN,XCANTIDAD,XUNIDAD,XITEM ,xcodmovart,xfecha_mov,xtipinv,xnumdoc
+private xcosto_tot,xprov_cli,xventa_tot, xalmacen
+IF ABRIR([MXEXTINV],cf('MXEXTINV'),[S],cf('MXEXINX1'))
+ IF ABRIR('MXTRAINV',cf('MXTRAINV'),'S',cf('MXTRINX1'),cf('MXTRINX2'),cf('MXTRINX3'))
+  SELECT MXRENRAP
+  SEEK(XNUMFAC)
+  DO WHILE !EOF() .AND. NUMFAC=XNUMFAC
+   XITEM=ITEM
+   IF !SUBSTR(XITEM,1,1)$'*-\/'
+      SELECT MXCTAINV
+      IF dbSEEK(XITEM)
+         DO MENSAJ WITH [Generando movimiento en inventario...]
+         XUNIDAD:=UNIDAD
+         SELECT MXRENRAP
+         XCODMOVART = ITEM
+         XFECHA_MOV := mxencrap->emision
+         xalmacen   := mxencrap->almacen
+         XTIPINV    = IF(CANTIDAD>=0,'SA','DV')
+         XNUMDOC    = XNUMFAC
+         XCANTIDAD  = ABS(CANTIDAD)
+         XCOSTO_TOT = 0
+         XVENTA_TOT = TOT_REN
+         XORIGEN    = [PVE]
+         xprov_cli=''
+         SELECT MXTRAINV
+         ADD_REC(0)
+         ARC_INV()
+      ENDIF
+   ENDIF
+   SELECT MXRENRAP
+   SKIP
+  ENDDO
+  CERRAR('MXTRAINV')
+ ENDIF
+ CERRAR([MXEXTINV])
+ENDIF
+RETURN 0
+
+
+FUNCTION RE_GENPV(EL_NUM)
+PRIVATE XTIPINV
+PRIVATE XFECHA_MOV
+* REVERSA MOVIMIENTOS DE INVENTARIO
+IF ABRIR([MXTRAINV],cf('MXTRAINV'),[S],cf('MXTRINX3'))
+ SELECT MXRENRAP
+ SEEK(EL_NUM)
+ DO WHILE !EOF() .AND. NUMFAC=EL_NUM
+  XITEM=ITEM
+  XTIPINV=IF(CANTIDAD>0,'SA','DV')
+  SELECT MXTRAINV
+  SEEK(EL_NUM+XTIPINV+XITEM+"PVE")
+  IF FOUND()
+   DO MENSAJ WITH [Reversando movimiento en inventario...]
+   REV_INV()
+   SELECT MXTRAINV
+   REC_LOCK(0)
+   DELETE
+  ENDIF
+  SELECT MXRENRAP
+  SKIP
+ ENDDO
+ CERRAR([MXTRAINV])
+ENDIF
+RETURN 0
+
+FUNCTION VCANTPV(CANT)
+local EXI,BCANT, breg
+IF LASTKEY()=5
+ RETURN .T.
+ENDIF
+IF CANT=0
+ RETURN .F.
+ENDIF
+IF  PV_ALM='N'
+ RETURN .T.
+ENDIF
+if SUBSTR(W_MEM[1,1],1,1)$'*-\/'
+   return .t.
+endif
+SELECT BUFFER
+BREG=RECNO()
+SUM CANTIDAD TO BCANT FOR ITEM=w_mem[1,1]
+GOTO BREG
+IF MODIFICA
+   BCANT=BCANT-CANTIDAD
+ENDIF
+EXI=EXIST(XEMISION,XALMACEN)+IF(ENTROXMOD,LCANTIDAD,0)
+IF CANT+BCANT>EXI
+ PARE("Existencia en almac‚n "+alltrim(XALMACEN)+" al "+DTOC(XEMISION)+" = "+LTRIM(TRANS(EXI-BCANT,'9,999,999.999')))
+ KEYBOARD ''
+ RETURN .f.
+ENDIF
+RETURN(CANT<999999.999 .and. cant*w_mem[5,1]<val(pic12))
+
+**************************************************************************
+function BASEIMPPV(factura,xrecargo)
+PRIVATE xdescuento:=0,xtot_net:=0, MAX_DCTO:=999999
+PRIVATE YIVA:={0,0,0,0}
+PRIVATE YBASE:={0,0,0,0,0}
+XDESCUENTO:=A->DESCUENTO
+if dbseek(factura)
+ YIVA[1]:=IVA('A',EMISION)
+ YIVA[2]:=IVA('B',EMISION)
+ YIVA[3]:=IVA('C',EMISION)
+ YIVA[4]:=IVA('D',EMISION)
+ DBEVAL({||SUMAR_IVA(XRECARGO)},,{||numfac==factura})
+ IF DIFCERO(xDESCUENTO)
+  FOR I:=1 TO 5
+   YBASE[I]:= YBASE[I] - YBASE[I]*ABS(DIV(XDESCUENTO,xTOT_NET,10))
+  NEXT
+ ENDIF
+ENDIF
+RETURN YBASE
+
+static function sumar_iva(XRECARGO)
+local xiva
+XTOT_NET+=TOT_REN
+if (xiva:=at(iva,'ABCD'))>0
+ if XRECARGO$'N,0,2,3'
+  YBASE[XIVA]:=YBASE[XIVA] + TOT_REN/(1+(yiva[xiva]/100))
+ else
+  YBASE[XIVA]:=YBASE[XIVA]+TOT_REN
+ endif
+else
+ ybase[5]:=ybase[5]+tot_ren
+ENDIF
+return
+
+static function valdevoPV(x)
+local usel:=select()
+local devo:=.t.
+select mxencrap
+if !dbseek(x)
+ pare('Factura no existe')
+ devo:=.f.
+endif
+select(usel)
+return devo
+
+function cargaiva
+local kalias:=select()
+local fiva:='mxiva.dbf'
+local findex:='mxiva.ntx'
+if !file(fiva)
+ copy file mxiva.ini to (fiva)
+ if file(findex)
+  ferase(findex)
+ endif
+endif
+use (fiva) alias mxiva new
+if !file(findex)
+ index on dtos(fecha)+tipoiva to (findex)
+endif
+set index to (findex)
+g_IVA:={}
+g_IClave :={}
+while !eof()
+  aadd(g_iva,mxiva->porcentaje)
+  aadd(g_iClave,mxiva->tipoiva+dtos(mxiva->fecha))
+  skip
+enddo
+use
+select(kalias)
+return
+
+function iva(tipo,fecha)
+local i,j:=0,l:=len(g_iclave)
+local clave
+if fecha==nil
+ fecha:=ctod(g_fecha)
+endif
+clave:=tipo+dtos(fecha)
+for i=l to 1 step -1
+ if left(g_iClave[i],1)==tipo
+  if g_iClave[i]<=clave
+   j:=i
+   exit
+  endif
+ endif
+next
+return if(j=0,0,g_iva[j])
+
+function RF1PV
+ DO CASE
+  CASE APL='ENC'
+   DETREN()
+  CASE APL='REN'
+   POSPAG(RECNO())
+   FR_TOTAL()
+ ENDCASE
+RETURN
+
+function RF2PV()
+   W_DETREG()
+   DETENC()
+RETURN
+
+
+function RestarIvaPV()
+ Private el_iva:=0
+ if inv_divaf='S' .AND. DIFCERO(W_MEM[5,1])
+    el_iva:=E_Importe(Iva(w_mem[2,1],xemision),xemision)
+    W_MEM[5,1]:=Div(w_mem[5,1],((el_iva/100)+1))
+ endif
+ SELECT BUFFER
+Return nil
+
+function SumaIvaPV()
+ if inv_divaf='S' .AND. DIFCERO(W_MEM[5,1])
+    el_iva     := E_Importe(Iva(w_mem[2,1],xemision),xemision)
+    W_MEM[5,1] := w_mem[5,1]+(w_mem[5,1]*(el_iva/100))
+ endif
+ SELECT BUFFER
+Return nil
+
+FUNCTION PreValDesPV()
+  SELECT BUFFER
+ IF pv_edcto='S'
+    RETURN .T.
+ ENDIF
+ IF pv_imp='S'
+    IF !CheqClave(pv_clavdesc,"Indique clave para descuentos:")
+       Alerta('CLAVE DE DESCUENTOS INCORRECTA')
+       W_MEM[6,1]:=0.00
+       RETURN .F.
+    ENDIF
+ ENDIF
+ SELECT BUFFER
+RETURN(IF(pv_edcto='S',.T.,.F.))
+
+Function CheqPorcPV(xx)
+ SELECT BUFFER
+ if xx>0 .and. pv_imp='S'
+  if !CheqClave(pv_clavdesc,"Indique clave para descuentos:")
+   Pare('Clave incorrecta')
+   w_mem[6,1]:=0
+   XX:=0
+   Return .f.
+  endif
+ endif
+Return(.t.)
+
+Function PrevPvpPV(el_monto)
+ if SUBSTR(w_mem[1,1],1,1)$'-*\'
+    return .t.
+ endif
+ if el_monto=0
+    Return .t.
+ endif
+ if pv_pvp$'S'
+    Return .t.
+ endif
+ if pv_pvp$'N'
+    //RestarIvaPv()
+ endif
+Return .f.
+
+Function DesblPV(literal)
+ local salida:=.f.
+ local mensaje:=literal+' esta bloqueado,  ¨ desea desbloquearlo ?'
+ if pv_mfac='S'
+    if decis(mensaje,1)='S'
+       salida:=CheqClave(pv_mcla,"Indique clave:")
+    else
+       salida:=.f.
+    endif
+ else
+    salida:=.t.
+ endif
+Return salida
+
+FUNCTION MASDATOSPV
+   LOCAL USCR:=SAVESCREEN(5,25,18,62), UGET, UCOL:=SETCOLOR()
+   IF LASTKEY()<>5
+      SAVE GET TO UGET
+      BOXSOM('',5,25,17,60,1)
+      SETCOLOR(C_TEX1)
+      OFF_KEY()
+      @  6,27 SAY 'Direcci¢n:'
+      @  7,27 GET XDIREC1
+      @  8,27 GET XDIREC2
+      @  9,27 GET XDIREC3
+      @ 10,27 GET XDIREC4
+      @ 11,27 SAY 'Tel‚fonos:      Numero de Fax:'
+      @ 12,27 GET XTLF1
+      @ 13,27 GET XTLF2
+      @ 12,43 GET XFAX
+      @ 15,27 SAY 'Direcci¢n de correo electronico:'
+      @ 16,27 GET XEMAIL PICT '@S32'
+      READ
+      * KEYBOARD ABAJO
+      RESTORE GET FROM UGET
+      RESTSCREEN(5,25,18,62,USCR)
+      SETCOLOR(UCOL)
+      ON_KEY()
+   ENDIF
+RETURN .T.
+
+Function MasDatRap(modifica)
+   IF pv_credi='S' .AND. !modifica
+      XDIREC1 := MXCTACLI->DIREC1
+      XDIREC2 := MXCTACLI->DIREC2
+      XDIREC3 := MXCTACLI->DIREC3
+      XDIREC4 := MXCTACLI->DIREC4
+      XTLF1   := MXCTACLI->TLF1
+      XTLF2   := MXCTACLI->TLF2
+      XFAX    := MXCTACLI->FAX
+      XEMAIL  := MXCTACLI->EMAIL
+   ELSE
+      XDIREC1 := DIREC1
+      XDIREC2 := DIREC2
+      XDIREC3 := DIREC3
+      XDIREC4 := DIREC4
+      XTLF1   := TLF1
+      XTLF2   := TLF2
+      XFAX    := FAX
+      XEMAIL  := EMAIL
+   ENDIF
+RETURN .T.
+****************************************************************************
+
+FUNCTION PRE_EMI(EL_REPORTE,EL_TIT,LA_ALI,CLA1,CLA2)
+   LOCAL ALI,FREG,ucolor:=SETCOLOR(),LA_SCR
+   PRIVATE ri_desde,ri_hasta,no_loop:=.T.
+   ali:=select(LA_ALI)
+   SELECT (ALI)
+   FREG     := RECNO()
+   RI_DESDE := CLA1
+   RI_HASTA := IF(VALTYPE(CLA2)='U',CLA1,CLA2)
+   LA_SCR   :=SAVESCREEN(0,0,MAXROW(),MAXCOL())
+   REPORTE(EL_REPORTE,EL_TIT,G_CAMINO,.T.)
+   RESTSCREEN(0,0,MAXROW(),MAXCOL(),LA_SCR)
+   setcolor(ucolor)
+   SELECT (ALI)
+   GOTO FREG
+RETURN
+****************************************************************************
+
+FUNCTION INIT_IO()
+ DBCLOSEALL()
+ V_CLOSEALL()
+ G_IO:={}
+RETURN NIL
+********************* REVERSO DEL MOVIMIENTO EN CXC
+
+PROCEDURE REVCXCPV
+LOCAL ES_NOTA:=MXENCRAP->TOT_FAC<0
+LOCAL OK,okk,LCLIENTE,LCONDPAG,LNUMFAC,LNUMERO_CXC
+IF MODIFICA
+ LCLIENTE    :=SUBSTR(MXENCRAP->NOMBRE,1,8)
+ LCONDPAG    :=MXENCRAP->CONDPAG
+ LNUMFAC     :=MXENCRAP->NUMFAC
+ LNUMERO_CXC :=MXENCRAP->DEVFAC
+ IF LCONDPAG>0
+  * CXC
+  MENSAJ([Reversando movimiento en CTAS. POR COBRAR ...])
+  okk :=.F.
+  OK  :=.F.
+  IF ABRIR([MXTRACOB],CF("MXTRACOB"),[S],CF("MXTRCBX3"))
+   ***************
+   SEEK(LCLIENTE)
+   ***************
+   IF FOUND()
+    DO WHILE !EOF() .AND. CODMOVCLI=LCLIENTE
+     IF !ES_NOTA
+      OK:= ( (NUMDOC=LNUMFAC .OR. NUMORG=LNUMFAC) .AND. !TIPO$[AB,CA,NC] );
+        .OR. (TIPO$"CA,AB" .AND. refer=[SERIE=] .AND. NUMORG=LNUMFAC )
+     ELSE
+      OK:= TIPO='NC' .AND. ORIGEN='PVE' .AND. NUMDOC=LNUMERO_CXC .AND. NUMORG=LNUMFAC
+     ENDIF
+     IF OK
+      okk:=.t.
+      REV_COBPV('MXCTACLI','MXTRACOB')
+      REC_LOCK(0)
+      DELETE
+     ENDIF
+     SKIP
+    ENDDO
+   ENDIF
+   IF !OKK
+    PARE([PRECAUCION. Movimiento de ctas. por cobrar no encontrado])
+   ENDIF
+   CERRAR([MXTRACOB])
+  ENDIF
+ ENDIF
+ENDIF
+RETURN
+********************************************************************************
+
+PROCEDURE INTERCXCPV
+PRIVATE XFORMAPAG,XNOMPAG,XNUMPAG
+PRIVATE XNUMDOC,XCODMOVCLI,XEMISION,XVENCE,XTIPO,XREFER,XCONCEPTO,XIMPORTE
+
+******************************* INTEGRACION DESDE FACTURACION
+
+ ******************** A CREDITO VA A CXC ( SOLAMENTE FACTURAS) **************
+IF XCONDPAG>0
+MENSAJ("Generando movimiento en CTAS. POR COBRAR ...")
+
+IF ABRIR([MXTRACOB],CF("MXTRACOB"),[S],CF("MXTRCBX2"),CF("MXTRCBX3"),CF("MXTRCBX1"),CF("MXTRCBX4"))
+
+ ************** AL VENCIMIENTO  VA A CXC
+ *******************************************
+ XCODMOVCLI = SUBSTR(MXENCRAP->NOMBRE,1,8)
+ XEMISION   :=MXENCRAP->EMISION
+ XVENCE     :=MXENCRAP->VENCE
+ XTIPO      = IF(XTOT_FAC>0,[FC],[NC])
+ XNUMDOC    = IF(XTOT_FAC>0,XNUMFAC,XDEVFAC)
+ XNUMORG    = XNUMFAC
+ XREFER     = IF(XCONDPAG=2,[SERIE=]+XSERIE,[])
+ XCONCEPTO  = 'FACTURA P/V'
+ XIMPORTE   = XTOT_FAC
+ *******************************************
+ ADD_REC(0)
+ ARC_COBPV('MXCTACLI','MXTRACOB')
+
+ ************* CON GIROS
+ IF XCONDPAG=2
+  * GENERA ABONO
+  IF DIFCERO(XABONO)
+   XTIPO=[AB]
+   XIMPORTE = -XABONO
+   ADD_REC(0)
+   ARC_COBPV('MXCTACLI','MXTRACOB')
+  ENDIF
+
+  * GENERA LA CANCELACION
+
+  STORE [] TO XFORMAPAG,XNOMPAG,XNUMPAG
+  XTIPO=[CA]
+  XIMPORTE = -(XTOT_FAC-XABONO)
+  ADD_REC(0)
+  ARC_COBPV('MXCTACLI','MXTRACOB')
+
+  * GRABA LOS GIROS
+  ARC_GIRPV('MXCTACLI','MXTRACOB')
+
+ ENDIF
+ CERRAR([MXTRACOB])
+ENDIF
+ENDIF
+RETURN
+
+STATIC FUNCTION ARC_GIRPV
+PARAMETER CTA_ALIAS,TRA_ALIAS
+MENSAJ([GRABANDO GIROS ...])
+IF ABRIR([BUFGIR],BUFGIR,[E])
+
+REPLACE ALL NUMORG WITH XNUMFAC,REFER WITH XNUMFAC
+GO TOP
+DO WHILE !EOF()
+ XIMPORTE=IMPORTE
+ ARC_COB(CTA_ALIAS,TRA_ALIAS,1)
+ SELECT BUFGIR
+ SKIP
+ENDDO
+CERRAR([BUFGIR])
+SELECT &TRA_ALIAS
+APPEND FROM (BUFGIR)
+DELETE FILE (BUFGIR)
+IF !MODIFICA
+ FSERIE=G_CAMINO+[MXSERIE.MEM]
+ LA_SERIE=XSERIE
+ SAVE TO (FSERIE) ALL LIKE LA_SERIE
+ENDIF
+ENDIF
+
+RETURN 0
+***************************** FIN GIROS
+
+
+*************************************************************************
+FUNCTION ARC_COBPV
+* ARCHIVA MOVIMIENTOS DE CUENTAS POR COBRAR Y PAGAR
+PARAMETER CTA_ALIAS,TRA_ALIAS,SIN_APPE
+
+PRIVATE XCOD
+
+XCOD = XCODMOVCLI
+
+SELECT &CTA_ALIAS
+SEEK(XCOD)
+
+*************************************
+REC_LOCK(0)
+*************************************
+
+REPLACE SALDO WITH SALDO + XIMPORTE
+
+IF XTIPO$'FC,GR'
+ REPLACE TOT_VEN WITH TOT_VEN+XIMPORTE
+ENDIF
+
+IF XTIPO$'AB,CA'
+ REPLACE FEC_UPAG WITH XEMISION
+ENDIF
+
+UNLOCK
+
+SELECT &TRA_ALIAS
+IF TYPE([SIN_APPE])=[U]
+ REPLACE CODMOVCLI WITH XCODMOVCLI,;
+         TIPO      WITH XTIPO,;
+         NUMDOC    WITH XNUMDOC,;
+         EMISION   WITH XEMISION   ,;
+         VENCE     WITH XVENCE,;
+         REFER     WITH XREFER,;
+         CONCEPTO  WITH XCONCEPTO,;
+         IMPORTE   WITH XIMPORTE,;
+         ORIGEN    WITH DOC_ORIGEN ,;
+         NUMORG    WITH XNUMORG,;
+         codven    with xcodven
+
+ENDIF
+
+RETURN 0
+
+FUNCTION REV_COBPV
+* REVERSA MOVIMIENTO DE CXC Y CXP
+PARAMETER CTA_ALIAS, TRA_ALIAS
+PRIVATE XCOD,XIMPORTE,XTIPO
+
+XCOD = CODMOVCLI
+XIMPORTE = IMPORTE
+XTIPO    = TIPO
+SELECT &CTA_ALIAS.
+SEEK(XCOD)
+IF FOUND()
+ *************************************
+ REC_LOCK(0)
+ *************************************
+ REPLACE SALDO WITH SALDO - XIMPORTE
+
+ IF XTIPO$'FC,GR'
+  REPLACE TOT_VEN WITH TOT_VEN-XIMPORTE
+ ENDIF
+
+ UNLOCK
+ENDIF
+SELECT &TRA_ALIAS.
+RETURN 0
+
+********************* REVERSO DEL MOVIMIENTO EN CXC
+
+***********************************
+FUNCTION PAR_PVT
+LOCAL PVFILE:=CE('MXTPV.MTD'),LA_LIN:=4,LA_COL:=1
+
+PRIVATE PV_PROG := SPACE(8)
+PRIVATE PV_iMP  := 'S'
+PRIVATE PV_inc  := 'N'
+PRIVATE PV_PVP  := 'N'
+PRIVATE PV_DCTO := 0.00
+PRIVATE PV_cargo:= 0.00
+PRIVATE PV_REDON:= 'N'
+PRIVATE PV_PAUSA:= 'N'
+PRIVATE PV_REP  :=SPACE(8)
+
+PRIVATE PV_EDNF :='N'
+PRIVATE PV_EDF  :='N'
+PRIVATE PV_EDV  :='S'
+PRIVATE PV_EDCLI:='S'
+PRIVATE PV_DC   :='N'
+PRIVATE PV_EDCTO:='N'
+PRIVATE PV_EDALM:='N'
+PRIVATE PV_ALM  :='N'
+PRIVATE PV_CREDI:='N'
+PRIVATE PV_EDCAN:='S'
+PRIVATE PV_EDCTB:='N'
+PRIVATE PV_EDIMP:='N'
+PRIVATE PV_F8   :='N'
+PRIVATE PV_CALT :='S'
+PRIVATE PV_CALM :=SPACE(2)
+PRIVATE PV_RDTP:='S'
+Private PV_CLAVDESC:=Space(5)
+Private PV_ABRDES:='S'
+Private PV_MFAC:='S'
+Private PV_MCLA:=Space(5)
+PRIVATE pv_BRENG:='N'
+PRIVATE PV_BRCLA:=Space(5)
+PRIVATE PV_RENGPAG := 0
+PRIVATE PV_DESCR := "S"
+IF FILE(PVFILE)
+ RESTORE FROM (PVFILE) ADDITIVE
+ENDIF
+
+BOXSOM(" Par metros Punto de Venta ",LA_LIN,LA_COL,LA_LIN+16,LA_COL+77,2)
+
+SETCOLOR(C_TEX2)
+@ LA_LIN+01,LA_COL+2 SAY [Editar fecha ?.........(S/N):] GET PV_EDF   PICT '!' VALID PV_EDF$'SN'
+@ LA_LIN+02,LA_COL+2 SAY [Editar vendedor ?......(S/N):] GET PV_EDV   PICT '!' VALID PV_EDV$'SN'
+@ LA_LIN+03,LA_COL+2 SAY [Editar cliente ?.......(S/N):] GET PV_EDCLI PICT '!' VALID PV_EDCLI$'SN'
+@ LA_LIN+04,LA_COL+2 SAY [Editar contribuyente ?.(S/N):] GET PV_EDCTB PICT '!' VALID PV_EDCTB$'SN'
+@ LA_LIN+05,LA_COL+2 SAY [Usa cr‚dito ?..........(S/N):] GET PV_credi PICT '!' VALID PV_credi$'SN'
+@ LA_LIN+06,LA_COL+2 SAY [Editar almac‚n ?.......(S/N):] GET PV_EDALM PICT '!' VALID PV_EDALM$'SN'
+@ LA_LIN+07,LA_COL+2 SAY [Editar impuesto ?......(S/N):] GET PV_edimp PICT '!' VALID PV_edimp$'SN'
+@ LA_LIN+08,LA_COL+2 SAY [Editar Descripci¢n ?...(S/N):] GET PV_DESCR PICT '!' VALID PV_DESCR$'SN'
+@ LA_LIN+09,LA_COL+2 SAY [Editar cantidad ?......(S/N):] GET PV_edcan PICT '!' VALID PV_edcan$'SN'
+@ LA_LIN+10,LA_COL+2 SAY [Editar el precio ?...(S/N/T):] GET PV_PVP   PICT '!' VALID PV_PVP$'SNT'
+@ LA_LIN+11,LA_COL+2 SAY [Editar desc. renglon ?.(S/N):] GET PV_EDCTO PICT '!' VALID PV_EDCTO$'SN'
+@ LA_LIN+12,LA_COL+2 SAY [Redondear decimales ?..(S/N):] GET PV_REDON PICT '!' VALID PV_REDON$'SN'
+@ LA_LIN+13,LA_COL+2 SAY [Pausa de impresi¢n ?...(S/N):] GET PV_pausa PICT '!' VALID PV_pausa$'SN'
+@ LA_LIN+14,LA_COL+2 SAY [C¢digo alterno en P.V ?(S/N):] GET PV_CALT  PICT '!' VALID PV_CALT$'SN'
+
+@ LA_LIN+01,LA_COL+34 SAY [Bloquear Mod./Eli. factura. ?.....(S/N):] GET PV_MFAC  PICT '!' VALID ActPassw(@pv_mfac,@pv_mcla,la_lin+13,la_col+25)
+@ LA_LIN+02,LA_COL+34 SAY [Bloq. Salida de los  Renglones. ?.(S/N):] GET PV_BRENG PICT '!' VALID ActPassw(@pv_breng,@pv_brcla,la_lin+14,la_col+25)
+@ LA_LIN+03,LA_COL+34 SAY [En l¡nea con el almac‚n ?.......(S/N/T):] GET PV_ALM   PICT '!' VALID PV_ALM$'SNT'
+@ LA_LIN+04,LA_COL+34 SAY [Decimales en la cantidad ?........(S/N):] GET PV_DC    PICT '!' VALID PV_DC$'SN'
+@ LA_LIN+05,LA_COL+34 say [% de descuento en la factura.......:] GET PV_DCTO  PICT '999.99'
+@ LA_LIN+06,LA_COL+34 say [C¢digo de almac‚n de salida........:] GET PV_CALM
+@ LA_LIN+07,LA_COL+34 say [Decimal en tabla de precios ? (S/N):] GET PV_RDTP PICT '!' VALID PV_RDTP$'SN'
+@ LA_LIN+08,LA_COL+34 say [% de recargo  en la factura........:] GET PV_cargo PICT '999.99'
+@ LA_LIN+09,LA_COL+34 SAY [Clave para desc./cargo (F9) ?.(S/N)....:] GET PV_IMP   PICT '!' VALID PV_IMP$'SN' .AND. ActPassw(@pv_imp,@pv_clavdesc,LA_LIN+8,LA_COL+40)
+@ LA_LIN+10,LA_COL+34 say [Formato de impresi¢n ...........:] GET PV_REP   PICT '@!'
+@ LA_LIN+11,LA_COL+34 say [Programa para abrir la caja ....:] GET PV_PROG  PICT '@!'
+@ LA_LIN+12,LA_COL+34 SAY [Abrir la caja despues de grabar ?.(S/N):] GET pv_abrdes PICT '!' VALID pv_abrdes$'SN'
+@ LA_LIN+13,LA_COL+34 say [F8=Imprimir ...........................:] GET PV_F8    PICT '!' VALID PV_F8$'SN'
+@ LA_LIN+14,LA_COL+34 say [Renglones por P gina en facturas P.V...:] GET PV_RENGPAG PICT '99' VALID PV_RENGPAG >= 0
+LEER()
+IF !ESCAPAR()
+ SAVE TO (PVFILE) ALL LIKE PV_*
+ENDIF
+RETURN NIL
+
+* GENERA LA CAJA DE PUNTO DE VENTA
+FUNCTION GENCAJAPV()
+private xcaja,xfecha
+if decis('¨ Desea generar caja ?')='S'
+IF ABRIR([MXCAJTPV],cf('MXCAJTPV'),[E])
+ MENSAJ('En proceso...')
+ zap
+ CERRAR('MXCAJTPV')
+
+ indexa(cf('MXCAJTPV'),CF('MXCATPX1'),'NUMERO')
+ indexa(cf('MXCAJTPV'),CF('MXCATPX2'),'DTOS(FECHA_CAJ)+CAJA+FORMAPAG')
+
+ IF ABRIR([MXCTATAR],cf('MXCTATAR'),[S],cf('MXCTTAX1'))
+  IF ABRIR([MXCAJTPV],cf('MXCAJTPV'),[S],CF('MXCATPX1'),CF('MXCATPX2'))
+  IF ABRIR('ABONOS',cf('MXABOAPA.DBF'),'S',cf('MXABAPX1.NTX'))
+  IF ABRIR([MXENCRAP],cf('MXENCRAP'),'S')
+   while !eof()
+    Mensaj('Recuperando datos desde facturas: '+alltrim(numfac))
+    xCAJA:=num_caja
+    xFECHA:=emision
+    depcajaPV()
+    select mxencrap
+    skip
+   enddo
+
+   DbSelectar('abonos')
+   while !eof()
+    Mensaj('Recuperando datos desde apartados: '+alltrim(numapa))
+    xCAJA:=num_caj
+    xFECHA:=emision
+    DbSelectar('MXCAJTPV')
+    Dbappend()
+    replace numero    with abonos->numapa,;
+            formapag  with if(abonos->fp='1','EF',if(abonos->fp='2','CH',if(abonos->fp='3','TA','  '))),;
+            nompag    with abonos->nompag, ;
+            numpag    with abonos->numpag, ;
+            importe   with abonos->importe,;
+            CAJA      WITH abonos->num_caj,;
+            FECHA_CAJ WITH abonos->emision
+    UNLOCK
+    DbSelectar('abonos')
+    skip
+   enddo
+  endif
+  endif
+ endif
+endif
+endif
+endif
+return
+
+** Esta funcion pide los datos del clientes de acuerdo a la seleccion del mismo al incluir
+Function PidaCed(elpar)
+   Local uscr:=SAVESCREEN(0,0,24,80), uget, ucol:=Setcolor(),nLin:=4,nCol:=2
+   SAVE GET TO UGET
+   cCedRif:=Space(12)
+   IF elpar
+      cCedRif:=CIF
+   ENDIF
+   BOXSOM('',nLin,nCol,nLin+2,nCol+30,1)
+   SETCURSOR(1)
+   SETCOLOR(C_TEX1)
+   @ nLin+1,nCol+2 SAY 'C‚dula/Rif.:'
+   @ nLin+1,nCol+15 GET cCedRif  COLOR C_INV2 VALID !EMPTY(cCedRif)
+   READ
+   RESTORE GET FROM UGET
+   RESTSCREEN(0,0,24,80,USCR)
+   SETCOLOR(UCOL)
+   IF LASTKEY()=27 .AND. empty(cCedRif)
+      __KEYBOARD(CHR(27))
+   ENDIF
+RETURN 'N'
+
+Function ActDatos()
+   Local uSel:=Select()
+   IF ABRIR('CLIESPOR',ce('MXCLIESP.DBF'),'S',ce('MXCLESX1.NTX'))
+      IF Dbseek(cCedRif)
+         W_MEM[7,1] := CCEDRIF
+         W_MEM[8,1] := CLIESPOR->NIT
+         W_MEM[6,1] := CLIESPOR->NOMCLI
+         XDIREC1    := CLIESPOR->DIREC1
+         XDIREC2    := CLIESPOR->DIREC2
+         XDIREC3    := CLIESPOR->DIREC3
+         XDIREC4    := CLIESPOR->DIREC4
+         XTLF1      := CLIESPOR->TLF1
+         XTLF2      := CLIESPOR->TLF2
+         XFAX       := CLIESPOR->FAX
+         XEMAIL     := CLIESPOR->EMAIL
+      ELSE
+         STORE SPACE(25) TO XDIREC1,XDIREC2,XDIREC3,XDIREC4
+         STORE SPACE(15) TO XTLF1,XTLF2,XFAX
+         STORE SPACE(50) TO XEMAIL
+      ENDIF
+      CERRAR('CLIESPOR')
+      DbSelectar(uSel)
+   ENDIF
+Return nil
+
+Function ValidaCliente(x)
+   Local lValue:=.T.
+   IF PV_CREDI='S'
+      IF MXCTACLI->(DBSEEK(x))
+         @ 5,21 SAY Pad(MXCTACLI->NOMCLI,18) COLOR C_TIT2
+         w_mem[7,1]:=mxctacli->cif
+         w_mem[8,1]:=mxctacli->nit
+         w_mem[9,1]:=mxctacli->regimen
+         XTARIFA:=ALLTRIM(MXCTACLI->TARIFA)
+         IF(!EMPTY(MXCTACLI->OBSERVA),PARE(ALLTRIM(MXCTACLI->OBSERVA)),NIL)
+         masdatrap(modifica)
+         lValue := .T.
+      ELSE
+        Selinfcli()
+        lValue := .F.
+      ENDIF
+   ENDIF
+RETURN(lValue)
+
+
+
+ /*
+      CHK_VEN('MXCTACLI','CTACLI',SUBSTR(X,1,8),;
+              BLK("DEVPOS(5,21),DEVOUT(PAD(MXCTACLI->NOMCLI,18)),w_mem[7,1]:=mxctacli->cif,;
+              w_mem[8,1]:=mxctacli->nit,w_mem[9,1]:=mxctacli->regimen,masdatrap(modifica),;
+              XTARIFA:=ALLTRIM(MXCTACLI->TARIFA),;
+              IF(!EMPTY(MXCTACLI->OBSERVA),PARE(ALLTRIM(OBSERVA)),NIL)")),;
+              NoVacio(x,'NOMBRE DEL CLIENTE'))
+
+   IF(PV_CREDI='S',CHK_VEN('MXCTACLI','CTACLI',SUBSTR(X,1,8),BLK("DEVPOS(5,21),;
+      DEVOUT(PAD(MXCTACLI->NOMCLI,18)),w_mem[7,1]:=mxctacli->cif,w_mem[8,1]:=mxctacli->nit,;
+      w_mem[9,1]:=mxctacli->regimen,masdatrap(modifica),XTARIFA:=ALLTRIM(MXCTACLI->TARIFA),;
+      IF(!EMPTY(MXCTACLI->OBSERVA),PARE(ALLTRIM(OBSERVA)),NIL)")),NoVacio(x,'NOMBRE DEL CLIENTE'))
+   */
+
+/*
+FUNCTION _CHKITEMPV(P)
+LOCAL PRICHAR
+PRIVATE XITEM
+XITEM:=P
+EXMIN:=0
+IF LASTKEY()=5
+   RETURN .T.
+ENDIF
+UNIREF = []
+CHKU   = .F.
+PRICHAR=SUBSTR(XITEM,1,1)
+DO CASE
+ CASE PRICHAR=[\]
+  SELE MXCTASER
+  SEEK(SUBSTR(XITEM,2,5))
+  IF !FOUND()
+   SER0000()
+   SELE BUFFER
+   RETURN .F.
+  ELSE
+   xpeso:=0
+   CopiServ()
+   IF !MODIFICA
+      XCODCON:=REFCON
+   ENDIF
+   LPRECIO=XPRECIO
+   XIVA   =MXCTASER->IVA
+   XULT_COSTO = 0
+   CHKU=.F.
+   IF vtas_pbul='S'
+      KEYBOARD REPLICATE(SALIDA,3)
+   ELSE
+      KEYBOARD REPLICATE(SALIDA,4)
+   ENDIF
+  ENDIF
+  SELE BUFFER
+ CASE PRICHAR$[*-]
+  SELE BUFFER
+  RETURN .T.
+ OTHERWISE
+  SELECT MXCTAINV
+  SET ORDER TO 1
+  LO_ENCONTRO:=.F.
+  IF EMPTY(XITEM)
+    SELINFINV()
+    IF LASTKEY()=27
+       KEYBOARD SALIDA
+       WAIT
+       SELECT BUFFER
+       RETURN .T.
+    ENDIF
+    SELECT BUFFER
+    RETURN .F.
+  ENDIF
+  IF DBSEEK(XITEM)
+     LO_ENCONTRO:=.T.
+  ELSE
+     // LO_ENCONTRO:=.F.
+     LO_ENCONTRO:=CHEQ_CODEXT()
+  ENDIF
+  IF LO_ENCONTRO
+     CopiArt()
+  ELSE
+     SET ORDER TO 2
+     IF DBSEEK(XITEM)
+        LO_ENCONTRO:=.T.
+     ELSE
+        LO_ENCONTRO:=.F.
+     ENDIF
+  ENDIF
+  SET ORDER TO 1
+  IF LO_ENCONTRO
+     CopiArt()
+  ENDIF
+  IF !LO_ENCONTRO
+    SELINFINV()
+    IF LASTKEY()=27
+       KEYBOARD SALIDA
+       WAIT
+       SELECT BUFFER
+       RETURN .T.
+    ENDIF
+     SELECT BUFFER
+     RETURN .F.
+  ELSE
+     SELECT BUFFER
+     if vtas_almren='S'
+        KEYBOARD REPLICATE(SALIDA,1)
+     else
+        IF vtas_pbul='S'
+           KEYBOARD REPLICATE(SALIDA,3)
+        ELSE
+           KEYBOARD REPLICATE(SALIDA,4)
+        ENDIF
+     endif
+     CopiArt()
+  ENDIF
+ENDCASE
+
+RETURN .T.
+*/
+
+Function ValidaItem(p)
+LOCAL PRICHAR,lValue
+PRIVATE XITEM := P
+
+EXMIN:=0
+
+IF LASTKEY()=5
+   RETURN .T.
+ENDIF
+UNIREF = []
+CHKU   = .F.
+
+PRICHAR=SUBSTR(XITEM,1,1)
+
+DO CASE
+ CASE PRICHAR$[\/]
+  SELE MXCTASER
+  SEEK(SUBSTR(XITEM,2,5))
+  IF !FOUND()
+   SER0000()
+   SELE BUFFER
+   RETURN .F.
+  ELSE
+   CopiServ()
+   SELECT BUFFER
+   RETURN .T.
+  ENDIF
+  SELE BUFFER
+ CASE PRICHAR$[*-]
+  SELE BUFFER
+  RETURN .T.
+ OTHERWISE
+  SELECT MXCTAINV
+  SET ORDER TO 1
+  LO_ENCONTRO := .F.
+  IF EMPTY(XITEM)
+     SELINFINV(,,,'TPV')
+     IF LASTKEY()=27
+        KEYBOARD SALIDA
+        WAIT
+        SELECT BUFFER
+        RETURN .F.
+     ENDIF
+     CopiArt()
+     SELECT BUFFER
+     RETURN .F.
+  ENDIF
+  IF DBSEEK(XITEM)
+     LO_ENCONTRO:=.T.
+  ELSE
+     LO_ENCONTRO:=.F.
+     LO_ENCONTRO:=CHEQ_CODEXT()
+  ENDIF
+  IF LO_ENCONTRO
+     CopiArt()
+  ELSE
+     SET ORDER TO 2
+     IF DBSEEK(XITEM)
+        LO_ENCONTRO:=.T.
+     ELSE
+        LO_ENCONTRO:=.F.
+     ENDIF
+  ENDIF
+  SET ORDER TO 1
+  IF LO_ENCONTRO
+     CopiArt()
+  ENDIF
+  IF !LO_ENCONTRO
+    SELINFINV()
+    IF LASTKEY()=27
+       KEYBOARD SALIDA
+       WAIT
+       SELECT BUFFER
+       RETURN .T.
+    ENDIF
+     SELECT BUFFER
+     RETURN .F.
+  ELSE
+     CopiArt()
+     SELECT BUFFER
+  ENDIF
+ENDCASE
+SELECT BUFFER
+RETURN .T.
+
+STATIC Function CopiArt()
+   w_var1     := MXCTAINV->UNIDAD
+   w_mem[1,1] := MXCTAINV->CODART
+   w_mem[2,1] := MXCTAINV->IVA
+   if modifica
+      if w_mem[1,1] <> BUFFER->ITEM
+         w_mem[3,1] := MXCTAINV->nomart
+      endif
+   else
+      w_mem[3,1] := MXCTAINV->nomart
+   endif
+   w_mem[4,1] := if(modifica,w_mem[4,1],1)
+   w_mem[5,1] := if(modifica,w_mem[5,1],MXCTAINV->PRECIO_A)
+   w_mem[6,1] := if(modifica,w_mem[6,1],if(MXCTAINV->DES_A>0,MXCTAINV->DES_A,PV_DCTO))
+Return nil
+
+STATIC Function CopiServ()
+   w_mem[2,1] := MXCTASER->IVA
+   if modifica
+      if w_mem[1,1] <> BUFFER->ITEM
+         w_mem[3,1] := MXCTASER->NOMSER
+      endif
+   else
+      w_mem[3,1] := MXCTASER->NOMSER
+   endif
+   w_mem[4,1] := if(modifica,w_mem[4,1],1)
+   w_mem[5,1] := if(modifica,w_mem[5,1],MXCTASER->PRESER)
+   w_mem[6,1] := if(modifica,w_mem[6,1],PV_DCTO)
+RETURN .T.
+
+
+
+
+
+
+/*
+xitem:=x,if(RQCchkitem(),Eval(Blk("w_mem[2,1]:=if(modifica,w_mem[2,1],MXCTAI
+NV->nomart),w_mem[3,1]:=MXCTAINV->iva,w_var1:=w_mem[4,1]:=MXCTAINV->unidad,w
+_mem[5,1]:=if(modifica,w_mem[5,1],1),w_mem[6,1]:=if(modifica,w_mem[6,1],1),w
+_mem[7,1]:=if(modifica,w_mem[7,1],MXCTAINV->precio_a),.t.")),.f.)
+*/
+
+Function MsgLimReng()
+  Alerta('SE HA REBASADO EL LIMITE DE RENGLONES POR FACTURA, NO PUEDE CONTINUAR INCLUYENDO REGISTROS EN ESTA FACTURA DE PUNTO DE VENTA...')
+  Alerta('LIMITE = '+ALLTRIM(STR(pv_rengpag,2))+' REGISTRO(S), DEBE BORRAR='+alltrim(str(ABS(PV_RENGPAG-LastRec()))))
+RETURN .F.
+
+Function FaltaRenglon()
+   Local lValue:=.t.
+   nTReg:=LastRec()
+   IF nTReg>0 .AND. pv_rengpag > 0 .AND. nTReg >= pv_rengpag
+      Alerta('SE HA REBASADO EL LIMITE DE RENGLONES POR PAGINA, NO PUEDE CONTINUAR INCLUYENDO REGISTROS...')
+      lValue:=.f.
+   ENDIF
+Return lValue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,17 @@
+# Copias de backup del codigo original
+/Copia de *.PRG
+/* - copia*.PRG
+/Copies/
+/Originales/
+
+# Archivos de datos e indice de MixNet (no son codigo)
+*.DBF
+*.DBT
+*.NTX
+*.CDX
+*.FXP
+*.APP
+
+# Sistema
+Thumbs.db
+Desktop.ini
