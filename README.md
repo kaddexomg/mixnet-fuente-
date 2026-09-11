@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # MixNet - Codigo Fuente (PRG)
 
 Codigo fuente FoxPro/dBASE del ERP MixNet de JJ PAPER, C.A.
